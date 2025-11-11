@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.medico import Medico
 
 class MedicoDAO(BaseDAO):

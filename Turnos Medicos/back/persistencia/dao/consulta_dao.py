@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.consulta import Consulta
 
 class ConsultaDAO(BaseDAO):
@@ -51,3 +51,11 @@ class ConsultaDAO(BaseDAO):
             self.conn.rollback()
             print(f"[ERROR] No se pudo eliminar la consulta: {e}")
     """
+    # Implementación Requerida por BaseDAO: eliminar
+    def eliminar(self, id):
+        """
+        Este método es requerido por BaseDAO. Sin embargo, la regla de negocio
+        establece que las consultas no deben ser eliminadas.
+        """
+        # Puedes lanzar un error para indicar que la operación no está permitida:
+        raise ValueError("La eliminación de consultas (operación DELETE) no está permitida por las reglas del sistema.")

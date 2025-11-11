@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.receta import Receta
 
 class RecetaDAO(BaseDAO):
@@ -47,6 +47,14 @@ class RecetaDAO(BaseDAO):
             print(f"[ERROR] No se pudo actualizar la receta: {e}")
             return None
     """
+    # Implementación Requerida por BaseDAO: actualizar
+    def actualizar(self, receta: Receta):
+        """
+        Este método es requerido por BaseDAO. Sin embargo, la regla de negocio
+        establece que las recetas no deben ser actualizadas.
+        """
+        # Puedes lanzar un error para indicar que la operación no está permitida:
+        raise ValueError("La actualizacion de recetas (operación UPDATE) no está permitida por las reglas del sistema.")
 
     def eliminar(self, id_receta):
         try:

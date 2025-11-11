@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.historial_clinico import HistorialClinico
 
 class HistorialClinicoDAO(BaseDAO):
@@ -33,3 +33,11 @@ class HistorialClinicoDAO(BaseDAO):
             self.conn.rollback()
             print(f"[ERROR] No se pudo eliminar el historial clínico: {e}")
     """
+    # Implementación Requerida por BaseDAO: eliminar
+    def eliminar(self, id):
+        """
+        Este método es requerido por BaseDAO. Sin embargo, la regla de negocio
+        establece que los HC no deben ser eliminados.
+        """
+        # Puedes lanzar un error para indicar que la operación no está permitida:
+        raise ValueError("La eliminación de historiales clinicos (operación DELETE) no está permitida por las reglas del sistema.")

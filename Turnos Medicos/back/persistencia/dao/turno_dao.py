@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.turno import Turno
 
 class TurnoDAO(BaseDAO):
@@ -51,3 +51,11 @@ class TurnoDAO(BaseDAO):
             self.conn.rollback()
             print(f"[ERROR] No se pudo eliminar el turno: {e}")
     """
+    # Implementación Requerida por BaseDAO: eliminar
+    def eliminar(self, id):
+        """
+        Este método es requerido por BaseDAO. Sin embargo, la regla de negocio
+        establece que los turnos no deben ser eliminados.
+        """
+        # Puedes lanzar un error para indicar que la operación no está permitida:
+        raise ValueError("La eliminación de turnos (operación DELETE) no está permitida por las reglas del sistema.")

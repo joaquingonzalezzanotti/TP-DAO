@@ -1,4 +1,4 @@
-from persistencia.dao.base_dao import BaseDAO
+from .base_dao import BaseDAO
 from modelos.especialidad import Especialidad
 
 class EspecialidadDAO(BaseDAO):

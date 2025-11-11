@@ -1,4 +1,5 @@
-from persistencia.dao.base_dao import BaseDAO
+from datetime import datetime
+from .base_dao import BaseDAO
 from modelos.paciente import Paciente
 
 class PacienteDAO(BaseDAO):
@@ -16,13 +17,13 @@ class PacienteDAO(BaseDAO):
     def obtener_todos(self):
         self.cur.execute("SELECT * FROM Paciente WHERE activo = 1")
         rows = self.cur.fetchall()
-        return [Paciente(row["dni"], row["nombre"], row["apellido"], row["fecha_nacimiento"], row["email"], row["direccion"], row["activo"]) for row in rows]
+        return [Paciente(row["dni"], row["nombre"], row["apellido"], datetime.strptime(row["fecha_nacimiento"], '%Y-%m-%d').date(), row["email"], row["direccion"], row["activo"]) for row in rows]
 
     def obtener_por_id(self, dni):
         self.cur.execute("SELECT * FROM Paciente WHERE dni = ?", (dni,))
         row = self.cur.fetchone()
         if row:
-            return Paciente(row["dni"], row["nombre"], row["apellido"], row["fecha_nacimiento"], row["email"], row["direccion"], row["activo"])
+            return Paciente(row["dni"], row["nombre"], row["apellido"], datetime.strptime(row["fecha_nacimiento"], '%Y-%m-%d').date(), row["email"], row["direccion"], row["activo"])
         return None
 
     def actualizar(self, paciente: Paciente):
