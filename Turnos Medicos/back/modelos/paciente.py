@@ -3,7 +3,7 @@ from datetime import datetime, date
 
 class Paciente:
     def __init__(self, dni, nombre, apellido, fecha_nacimiento, email, direccion, activo=1):
-        # Asignamos los atributos
+        # Asignamos los atributos y normalizamos cadenas
         self.dni = dni
         self.nombre = nombre.strip() if isinstance(nombre, str) else nombre
         self.apellido = apellido.strip() if isinstance(apellido, str) else apellido
@@ -25,12 +25,19 @@ class Paciente:
         # Nombre y Apellido: verifica tipo y que la longitud limpia sea >= 2
         if not isinstance(self.nombre, str) or len(self.nombre) < 2:
             raise ValueError("El nombre debe ser una cadena de texto válida y tener al menos 2 caracteres.")
+        if len(self.nombre) > 50:
+            raise ValueError("El nombre no puede superar 50 caracteres.")        
         if not isinstance(self.apellido, str) or len(self.apellido) < 2:
             raise ValueError("El apellido debe ser una cadena de texto válida y tener al menos 2 caracteres.")
-        
-        # Dirección: verifica tipo y que la cadena limpia no esté vacía
-        if not isinstance(self.direccion, str) or not self.direccion:
-            raise ValueError("La dirección debe ser una cadena de texto válida y no vacía.")
+        if len(self.apellido) > 50:
+            raise ValueError("El apellido no puede superar 50 caracteres.")
+                
+        # --- Validación Direccion (es opcional poner) ---
+        if self.direccion is not None:
+            if not isinstance(self.direccion, str):
+                raise ValueError("La direccion debe ser texto.")
+            if len(self.direccion) > 50:
+                raise ValueError("La direccion no puede superar los 50 caracteres.")
                    
         # Validación y Conversión: Fecha de Nacimiento
         try:
@@ -60,6 +67,9 @@ class Paciente:
         email_regex = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
         if not re.fullmatch(email_regex, self.email):
             raise ValueError("Formato de email inválido.")
+
+        if len(self.email) > 50:
+            raise ValueError("El email no puede superar 50 caracteres.")
             
         # Validación Activo
         if not isinstance(self.activo, int) or self.activo not in [0, 1]:

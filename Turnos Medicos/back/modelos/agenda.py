@@ -25,8 +25,8 @@ class Agenda:
             raise ValueError("La matrícula del médico debe ser numérica.")
         if not (1 <= self.mes <= 12):
             raise ValueError("El mes debe estar entre 1 y 12.")
-        if self.duracion_minutos <= 0:
-            raise ValueError("La duración del turno debe ser positiva.")
+        if self.duracion_minutos <= 0 and self.duracion_minutos > 480:
+            raise ValueError("La duración del turno debe ser positiva y maximo 480.")
         if not isinstance(self.duracion_minutos, int):
             raise ValueError("La duración del turno debe ser un número entero de minutos.")
         

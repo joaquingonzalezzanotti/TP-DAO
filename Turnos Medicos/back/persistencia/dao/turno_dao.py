@@ -59,3 +59,24 @@ class TurnoDAO(BaseDAO):
         """
         # Puedes lanzar un error para indicar que la operación no está permitida:
         raise ValueError("La eliminación de turnos (operación DELETE) no está permitida por las reglas del sistema.")
+    
+    def existen_turnos_generados(self, nro_matricula_medico: int, mes: int, anio: int) -> bool:
+        """
+        Retorna True si ya existen turnos generados para ese médico en ese mes.
+        """
+        query = """
+            SELECT COUNT(*)
+            FROM turnos
+            WHERE nro_matricula_medico = ?
+                AND strftime('%m', fecha_hora_inicio) = ?
+                AND strftime('%Y', fecha_hora_inicio) = ?
+        """
+
+        self.cursor.execute(query, (
+            nro_matricula_medico,
+            f"{mes:02d}",
+            str(anio)
+        ))
+
+        cantidad = self.cursor.fetchone()[0]
+        return cantidad > 0

@@ -18,6 +18,11 @@ class MedicoDAO(BaseDAO):
         rows = self.cur.fetchall()
         return [Medico(row["nro_matricula"], row["nombre"], row["apellido"], row["email"], row["id_especialidad"]) for row in rows]
 
+    def obtener_todos_inactivos(self):
+        self.cur.execute("SELECT * FROM Medico WHERE activo = 0")
+        rows = self.cur.fetchall()
+        return [Medico(row["nro_matricula"], row["nombre"], row["apellido"], row["email"], row["id_especialidad"], row["activo"]) for row in rows]
+    
     def obtener_por_id(self, nro_matricula):
         self.cur.execute("SELECT * FROM Medico WHERE nro_matricula=?", (nro_matricula,))
         row = self.cur.fetchone()
@@ -25,6 +30,16 @@ class MedicoDAO(BaseDAO):
             return Medico(row["nro_matricula"], row["nombre"], row["apellido"], row["email"], row["id_especialidad"], row["activo"])
         return None
 
+    def obtener_por_especialidad(self, id_especialidad):
+        self.cur.execute("SELECT * FROM Medico WHERE id_especialidad=? AND activo = 1", (id_especialidad,))
+        rows = self.cur.fetchall()
+        return [Medico(row["nro_matricula"], row["nombre"], row["apellido"], row["email"], row["id_especialidad"]) for row in rows]
+    
+    def obtener_por_apellido(self, apellido):
+        self.cur.execute("SELECT * FROM Medico WHERE apellido LIKE ? AND activo = 1", (f"%{apellido}%",))
+        rows = self.cur.fetchall()
+        return [Medico(row["nro_matricula"], row["nombre"], row["apellido"], row["email"], row["id_especialidad"]) for row in rows]
+    
     def actualizar(self, medico: Medico):
         try:
             self.cur.execute('''
@@ -45,3 +60,12 @@ class MedicoDAO(BaseDAO):
         except Exception as e:
             self.conn.rollback()
             print(f"[ERROR] No se pudo desactivar el paciente: {e}")
+    
+    def activar(self, nro_matricula):
+        """Reactivar un médico inactivo"""
+        try:
+            self.cur.execute("UPDATE Medico SET activo = 1 WHERE nro_matricula=?", (nro_matricula,))
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            print(f"[ERROR] No se pudo reactivar el médico: {e}")
