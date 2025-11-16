@@ -15,7 +15,7 @@ class Medico:
         if not isinstance(self.nro_matricula, int):
             raise ValueError("La matrícula del médico debe ser un número entero.")
 
-        if self.nro_matricula <= 0 and self.nro_matricula > 999999:
+        if self.nro_matricula <= 0 or self.nro_matricula > 999999:
             raise ValueError("La matrícula debe ser un número positivo y maximo 999999.")
 
         # --- Normalización ---

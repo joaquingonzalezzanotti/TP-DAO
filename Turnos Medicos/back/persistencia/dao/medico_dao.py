@@ -1,6 +1,7 @@
 from .base_dao import BaseDAO
 from modelos.medico import Medico
-
+from persistencia.persistencia_errores import DatabaseError, IntegridadError
+import sqlite3 # Necesario para atrapar errores específicos de SQLite
 class MedicoDAO(BaseDAO):
     def crear(self, medico: Medico):
         try:
@@ -9,9 +10,12 @@ class MedicoDAO(BaseDAO):
                 (medico.nro_matricula, medico.nombre, medico.apellido, medico.email, medico.id_especialidad)
             )
             self.conn.commit()
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al crear el médico: {e}")
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo crear el médico: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al crear el médico: {e}")
 
     def obtener_todos(self):
         self.cur.execute("SELECT * FROM Medico WHERE activo = 1")
@@ -43,29 +47,38 @@ class MedicoDAO(BaseDAO):
     def actualizar(self, medico: Medico):
         try:
             self.cur.execute('''
-                UPDATE Medico SET nombre=?, apellido=?, email=?, especialidad_id=? WHERE id=? AND activo = 1
+                UPDATE Medico SET nombre=?, apellido=?, email=?, id_especialidad=? WHERE nro_matricula=? AND activo = 1
             ''', (medico.nombre, medico.apellido, medico.email, medico.id_especialidad, medico.nro_matricula))
             self.conn.commit()
             return self.obtener_por_id(medico.nro_matricula)
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al actualizar el médico: {e}")
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo actualizar el médico: {e}")
-            return None
+            raise DatabaseError(f"Error de base de datos no especificado al actualizar el médico: {e}")
 
     def eliminar(self, nro_matricula):
         """Baja lógica del Medico"""
         try:
             self.cur.execute("UPDATE Medico SET activo = 0 WHERE nro_matricula=?", (nro_matricula,))
             self.conn.commit()
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al eliminar el médico: {e}")
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo desactivar el paciente: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al eliminar el médico: {e}")
     
     def activar(self, nro_matricula):
         """Reactivar un médico inactivo"""
         try:
             self.cur.execute("UPDATE Medico SET activo = 1 WHERE nro_matricula=?", (nro_matricula,))
             self.conn.commit()
+            
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al activar el médico: {e}")   
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo reactivar el médico: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al activar el médico: {e}")

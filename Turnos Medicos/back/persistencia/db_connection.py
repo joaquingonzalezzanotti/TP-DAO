@@ -31,7 +31,7 @@ class DBConnection:
             apellido TEXT NOT NULL,
             fecha_nacimiento DATE NOT NULL,
             email TEXT NOT NULL,
-            direccion TEXT
+            direccion TEXT,
             activo INTEGER DEFAULT 1
         )
         ''')
@@ -41,7 +41,7 @@ class DBConnection:
         CREATE TABLE IF NOT EXISTS Especialidad (
             id_especialidad INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre UNIQUE TEXT NOT NULL,
-            descripcion TEXT
+            descripcion TEXT,
             activo INTEGER DEFAULT 1
         )
         ''')
@@ -54,7 +54,7 @@ class DBConnection:
             apellido TEXT NOT NULL,
             email TEXT,
             id_especialidad INTEGER NOT NULL,
-            activo INTEGER DEFAULT 1
+            activo INTEGER DEFAULT 1,
             FOREIGN KEY(id_especialidad) REFERENCES Especialidad(id_especialidad)
         )
         ''')
@@ -101,11 +101,11 @@ class DBConnection:
         CREATE TABLE IF NOT EXISTS Consulta (
             id_consulta INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha_hora DATETIME NOT NULL,
-            diagnostico TEXT,
+            diagnostico TEXT NOT NULL,
             observaciones TEXT,
-            id_historial_clinico INTEGER NOT NULL,
+            dni_paciente INTEGER NOT NULL,
             nro_matricula_medico INTEGER NOT NULL,
-            FOREIGN KEY(id_historial_clinico) REFERENCES HistorialClinico(dni_paciente),
+            FOREIGN KEY(dni_paciente) REFERENCES HistorialClinico(dni_paciente),
             FOREIGN KEY(nro_matricula_medico) REFERENCES Medico(nro_matricula)
         )
         ''')
@@ -115,7 +115,7 @@ class DBConnection:
         CREATE TABLE IF NOT EXISTS Receta (
             id_receta INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha_emision DATE NOT NULL,
-            medicamentos TEXT,
+            medicamentos TEXT NOT NULL,
             detalle TEXT,
             id_consulta INTEGER NOT NULL,
             FOREIGN KEY(id_consulta) REFERENCES Consulta(id_consulta)

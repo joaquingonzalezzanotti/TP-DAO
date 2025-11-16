@@ -1,19 +1,25 @@
 from .base_dao import BaseDAO
 from modelos.receta import Receta
-
+from persistencia.persistencia_errores import DatabaseError, IntegridadError
+import sqlite3 # Necesario para atrapar errores específicos de SQLite
 class RecetaDAO(BaseDAO):
     def crear(self, receta: Receta):
         try:
+            fecha_emision_str = self._fmt_date(receta.fecha_emision)
+
             self.cur.execute(
                 """INSERT INTO Receta (fecha_emision, medicamentos, detalle, id_consulta)
                    VALUES (?, ?, ?, ?)""",
-                (receta.fecha_emision, receta.medicamentos, receta.detalle, receta.id_consulta)
+                (fecha_emision_str, receta.medicamentos, receta.detalle, receta.id_consulta)
             )
             receta.id_receta = self.cur.lastrowid
             self.conn.commit()
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al crear la receta: {e}")
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo crear la receta: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al crear la receta: {e}")
 
     def obtener_todos(self):
         self.cur.execute("SELECT * FROM Receta")
@@ -60,6 +66,9 @@ class RecetaDAO(BaseDAO):
         try:
             self.cur.execute("DELETE FROM Receta WHERE id_receta=?", (id_receta,))
             self.conn.commit()
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al eliminar la receta: {e}")
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo eliminar la receta: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al eliminar la receta: {e}")

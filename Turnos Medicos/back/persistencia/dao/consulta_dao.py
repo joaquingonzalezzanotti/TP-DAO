@@ -1,20 +1,28 @@
 from .base_dao import BaseDAO
 from modelos.consulta import Consulta
-
+from persistencia.persistencia_errores import DatabaseError, IntegridadError
+import sqlite3 # Necesario para atrapar errores específicos de SQLite
 class ConsultaDAO(BaseDAO):
     def crear(self, consulta: Consulta):
         try:
+            fecha_hora_str = self._fmt_datetime(consulta.fecha_hora)
             self.cur.execute(
-                """INSERT INTO Consulta (fecha_hora, diagnostico, observaciones, id_historial_clinico, nro_matricula_medico)
+                """INSERT INTO Consulta (fecha_hora, diagnostico, observaciones, dni_paciente, nro_matricula_medico)
                    VALUES (?, ?, ?, ?, ?)""",
-                (consulta.fecha_hora, consulta.diagnostico, consulta.observaciones,
-                 consulta.id_historial_clinico, consulta.nro_matricula_medico)
+                (fecha_hora_str, consulta.diagnostico, consulta.observaciones,
+                 consulta.dni_paciente, consulta.nro_matricula_medico)
             )
             consulta.id_consulta = self.cur.lastrowid
             self.conn.commit()
+
+        # Captura errores específicos de integridad (como Foreign Key o NOT NULL)
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            raise IntegridadError(f"Error de integridad al crear la consulta: {e}")    
+        # Captura cualquier otro error genérico de la DB
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo crear la consulta: {e}")
+            raise DatabaseError(f"Error de base de datos no especificado al crear la consulta: {e}")
 
     def obtener_todos(self):
         self.cur.execute("SELECT * FROM Consulta")
@@ -36,10 +44,16 @@ class ConsultaDAO(BaseDAO):
             )
             self.conn.commit()
             return self.obtener_por_id(consulta.id_consulta)
+        
+        # Captura errores específicos de integridad (como Foreign Key o NOT NULL)
+        except sqlite3.IntegrityError as e:
+            self.conn.rollback()
+            # Lanzamos una excepción más específica para la capa superior
+            raise IntegridadError(f"Error de integridad al actualizar la consulta: {e}")
+        # Captura cualquier otro error genérico de la DB
         except Exception as e:
             self.conn.rollback()
-            print(f"[ERROR] No se pudo actualizar la consulta: {e}")
-            return None
+            raise DatabaseError(f"Error de base de datos no especificado al actualizar la consulta: {e}")
 
     """
     No se debe eliminar consultas

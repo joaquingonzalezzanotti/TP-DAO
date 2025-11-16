@@ -1,0 +1,374 @@
+from persistencia.dao.turno_dao import TurnoDAO
+from persistencia.dao.paciente_dao import PacienteDAO
+from persistencia.dao.medico_dao import MedicoDAO
+from persistencia.dao.especialidad_dao import EspecialidadDAO
+from persistencia.persistencia_errores import IntegridadError, DatabaseError, NotFoundError
+from modelos.turno import Turno
+from datetime import datetime, date, timedelta
+class TurnoService:
+    """
+    Servicio que encapsula la lógica de negocio relacionada con los médicos.
+    Coordina acceso a DAO y aplica reglas (baja cohesión, bajo acoplamiento).
+    """
+
+    def __init__(self):
+        self.turno_dao = TurnoDAO()
+        self.paciente_dao = PacienteDAO()
+        self.medico_dao = MedicoDAO()
+        self.especialidad_dao = EspecialidadDAO()
+
+    
+    def programar_turno(self, id_turno, dni_paciente, motivo, observaciones=None):
+        """
+        Asigna un turno a un paciente.
+        """
+        try:
+            turno = self.turno_dao.obtener_por_id(id_turno)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el turno {id_turno}: {e}")
+
+        if not turno:
+            raise ValueError(f"No existe un turno con ID {id_turno}.")
+        
+        if turno.fecha_hora_inicio < datetime.now():
+            raise ValueError(f"El turno con ID {id_turno} es pasado ({turno.fecha_hora_inicio}) y no puede ser programado.")
+        
+        try:
+            paciente = self.paciente_dao.obtener_por_id(dni_paciente)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el paciente {dni_paciente}: {e}")
+        
+        if not paciente or paciente.activo == 0:
+            raise ValueError(f"No existe un paciente activo con DNI {dni_paciente}.")
+
+        if turno.estado != 'disponible':
+            raise ValueError(f"El turno con ID {id_turno} no está disponible para asignación.")
+
+        # Asignar el paciente al turno y cambiar estado
+        turno.dni_paciente = dni_paciente
+        turno.estado = 'programado'
+        turno.motivo = motivo
+        if observaciones:
+            turno.observaciones = observaciones
+
+        # Validar y persistir cambios
+        try:
+            turno._validar()
+            actualizado = self.turno_dao.actualizar(turno)
+            if actualizado:
+                print(f"[OK] Turno {id_turno} asignado correctamente.")
+            return actualizado
+        
+        except IntegridadError as e:
+            print(f"[ERROR INTEGRIDAD] {e}") 
+            raise ValueError("Error de datos. Los datos proporcionados no son válidos.")    
+        except DatabaseError as e:
+            print(f"[ERROR DB] {e}")
+            raise RuntimeError("Ocurrió un error técnico al actualizar la base de datos. Intente más tarde.")
+        except ValueError as ve:
+            print(f"[VALIDACIÓN] {ve}")
+            raise
+        except RuntimeError as re:
+            # Captura errores de obtención/chequeo de existencia
+            raise
+
+    def cancelar_turno(self, id_turno, observaciones=None):
+        """
+        Cancela un turno existente y genera un nuevo turno 'disponible' en el mismo slot.
+        """
+        # Obtener y validar turno
+        try:
+            turno = self.turno_dao.obtener_por_id(id_turno)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el turno {id_turno}: {e}")
+
+        if not turno:
+            raise ValueError(f"No existe un turno con ID {id_turno}.")
+        
+        if turno.fecha_hora_inicio < datetime.now():
+            raise ValueError(f"El turno con ID {id_turno} es pasado ({turno.fecha_hora_inicio}) y no puede ser cancelado.")
+
+        if turno.estado not in ['programado', 'reprogramado']:
+            raise ValueError(f"El turno {id_turno} no puede ser cancelado. Estado actual: {turno.estado}.")
+
+        # Modificar el turno original (estado: cancelado)
+        turno.estado = 'cancelado'
+        turno.motivo = f"Cancelado por el paciente/sistema (Original ID: {id_turno})"
+        if observaciones:
+            turno.observaciones = observaciones
+
+        # Crear el nuevo turno disponible (replica el slot de tiempo)      
+        nuevo_turno = Turno(
+            fecha_hora_inicio=turno.fecha_hora_inicio,
+            estado='disponible',
+            nro_matricula_medico=turno.nro_matricula_medico,
+            dni_paciente=None 
+        )
+        
+        # Persistir cambios y la creación del nuevo turno (en una sola transacción lógica)
+        try:
+            turno._validar()
+            self.turno_dao.actualizar(turno)
+            self.turno_dao.crear(nuevo_turno)
+            
+            print(f"[OK] Turno {id_turno} cancelado y turno disponible creado en el mismo slot.")
+            return nuevo_turno
+        
+        except IntegridadError as e:
+            print(f"[ERROR INTEGRIDAD] {e}") 
+            # Esto puede ocurrir si el nuevo turno generado viola la FK de Medico
+            raise ValueError("Fallo de integridad al cancelar el turno. Verifique la matrícula del médico.")     
+        except DatabaseError as e:
+            print(f"[ERROR DB] {e}")
+            raise RuntimeError("Ocurrió un error técnico en la base de datos durante la cancelación.")
+        except ValueError as ve:
+            # Captura errores de validación si el modelo Turno._validar() falla
+            print(f"[VALIDACIÓN] {ve}")
+            raise
+        except RuntimeError as re:
+            # Captura errores de obtención/chequeo de existencia
+            raise
+
+    def marcar_atendido_turno(self, id_turno):
+        """
+        Marca un turno como 'atendido'. Aplica solo si el estado es 'programado'.
+        """
+        # Obtener y validar turno
+        try:
+            turno = self.turno_dao.obtener_por_id(id_turno)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el turno {id_turno}: {e}")
+
+        if not turno:
+            raise ValueError(f"No existe un turno con ID {id_turno}.")
+
+        # Validar la hora del turno
+        # Calcular los límites de la ventana de 4 horas
+        limite_inferior = turno.fecha_hora_inicio - timedelta(hours=2)
+        limite_superior = turno.fecha_hora_inicio+ timedelta(hours=2)
+        ahora = datetime.now()
+
+        # Verificar si la hora actual está DENTRO del rango
+        if not (limite_inferior <= ahora <= limite_superior):
+            raise ValueError(
+                f"El turno {id_turno} no puede marcarse como atendido. "
+                f"La hora actual ({ahora.strftime('%H:%M')}) está fuera de la ventana de +/- 2 horas "
+                f"({limite_inferior.strftime('%H:%M')} a {limite_superior.strftime('%H:%M')})."
+            )    
+            
+        if turno.estado != 'programado':
+            raise ValueError(f"El turno {id_turno} solo se puede marcar como atendido si está 'programado'. Estado actual: {turno.estado}")
+
+        # Modificar el estado y persistir
+        turno.estado = 'atendido'
+
+        try:
+            turno._validar()
+            self.turno_dao.actualizar(turno)
+            print(f"[OK] Turno {id_turno} marcado como atendido.")
+            return turno
+        
+        except IntegridadError as e:
+            print(f"[ERROR INTEGRIDAD] {e}") 
+            raise ValueError("Fallo de integridad al actualizar el turno.")     
+        except DatabaseError as e:
+            print(f"[ERROR DB] {e}")
+            raise RuntimeError("Ocurrió un error técnico al actualizar la base de datos.")
+        except ValueError as ve:
+            print(f"[VALIDACIÓN] {ve}")
+            raise
+        except RuntimeError as re:
+            raise
+
+    def marcar_ausente_turno(self, id_turno):
+        """
+        Marca un turno como 'ausente' si el paciente no se presentó.
+        """
+        # Obtener y validar turno
+        try:
+            turno = self.turno_dao.obtener_por_id(id_turno)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el turno {id_turno}: {e}")
+
+        if not turno:
+            raise ValueError(f"No existe un turno con ID {id_turno}.")
+        
+        # VALIDACIÓN DE LA HORA DEL TURNO   
+        # Regla: El turno debe haber pasado para poder marcarlo como ausente.
+        if turno.fecha_hora_inicio > datetime.now():
+            raise ValueError(
+                f"El turno {id_turno} es futuro ({turno.fecha_hora_inicio.strftime('%Y-%m-%d %H:%M')}) "
+                f"y aún no puede ser marcado como ausente."
+            )
+        
+        if turno.estado != 'programado':
+            raise ValueError(f"El turno {id_turno} solo se puede marcar como ausente si está 'programado'. Estado actual: {turno.estado}")
+
+        # Modificar el estado y persistir
+        turno.estado = 'ausente'
+
+        try:
+            turno._validar()
+            self.turno_dao.actualizar(turno)
+            print(f"[OK] Turno {id_turno} marcado como ausente.")
+            return turno
+        
+        except IntegridadError as e:
+            print(f"[ERROR INTEGRIDAD] {e}") 
+            raise ValueError("Fallo de integridad al actualizar el turno.")     
+        except DatabaseError as e:
+            print(f"[ERROR DB] {e}")
+            raise RuntimeError("Ocurrió un error técnico al actualizar la base de datos.")
+        except ValueError as ve:
+            print(f"[VALIDACIÓN] {ve}")
+            raise
+        except RuntimeError as re:
+            raise
+
+    def obtener_turnos_disponibles_para_medico_fecha(self, nro_matricula_medico, fecha):
+        """
+        Obtiene los turnos disponibles para un médico en una fecha específica.
+        """
+        try:
+            medico = self.medico_dao.obtener_por_id(nro_matricula_medico)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al verificar el médico {nro_matricula_medico}: {e}")
+        
+        if not medico or medico.activo == 0:
+            raise ValueError(f"No existe un médico activo con matrícula {nro_matricula_medico}.")
+        
+        if isinstance(fecha, str):
+            try:
+                fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha, (datetime, date)):
+            fecha = fecha.date() if isinstance(fecha, datetime) else fecha
+        else:
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+        
+        if fecha < date.today():
+            raise ValueError("La fecha no puede ser anterior a hoy")
+
+        try:
+            return self.turno_dao.obtener_turnos_por_especialidad_y_fecha(nro_matricula_medico, fecha)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos disponibles por médico/fecha: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos disponibles.")
+    
+    def obtener_turnos_disponibles_para_medico_mes(self, nro_matricula_medico):
+        """
+        Obtiene los turnos disponibles para un médico en el mes actual.
+        """
+        try:
+            medico = self.medico_dao.obtener_por_id(nro_matricula_medico)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al verificar el médico {nro_matricula_medico}: {e}")
+        
+        if not medico or medico.activo == 0:
+            raise ValueError(f"No existe un médico activo con matrícula {nro_matricula_medico}.")
+
+        hoy = date.today()
+        mes_actual = hoy.month
+        anio_actual = hoy.year
+
+        try:
+            return self.turno_dao.obtener_turnos_disponibles_por_medico_y_mes(nro_matricula_medico, mes_actual, anio_actual)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos disponibles por médico/mes: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos disponibles.")
+    
+    def obtener_turnos_por_especialidad_y_fecha(self, especialidad, fecha):
+        """
+        Obtiene los turnos disponibles para una especialidad en una fecha específica.
+        """
+        try:
+            especialidad_obj = self.especialidad_dao.obtener_por_nombre(especialidad)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar la especialidad '{especialidad}': {e}")
+        
+        if not especialidad_obj:
+            raise ValueError(f"No existe una especialidad activa con nombre '{especialidad}'.")
+        else:
+            id_especialidad = especialidad_obj.id_especialidad
+
+        if isinstance(fecha, str):
+            try:
+                fecha = datetime.strptime(fecha, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha, (datetime, date)):
+            fecha = fecha.date() if isinstance(fecha, datetime) else fecha
+        else:
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+        
+        if fecha < date.today():
+            raise ValueError("La fecha no puede ser anterior a hoy")
+
+        try:
+            return self.turno_dao.obtener_turnos_por_especialidad_y_fecha(id_especialidad, fecha)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos por especialidad/fecha: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos por especialidad.")
+        
+    def obtener_turnos_por_especialidad_y_mes(self, especialidad):
+        """
+        Obtiene los turnos disponibles para una especialidad en el mes actual.
+        """
+        try:
+            especialidad_obj = self.especialidad_dao.obtener_por_nombre(especialidad)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar la especialidad '{especialidad}': {e}")
+
+        if not especialidad_obj:
+            raise ValueError(f"No existe una especialidad activa con nombre '{especialidad}'.")
+        
+        id_especialidad = especialidad_obj.id_especialidad
+
+        hoy = date.today()
+        mes_actual = hoy.month
+        anio_actual = hoy.year
+
+        try:
+            return self.turno_dao.obtener_turnos_por_especialidad_y_mes(id_especialidad, mes_actual, anio_actual)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos por especialidad/mes: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos por especialidad.")
+        
+    ################# VER SI ESTA BIEN IMPLEMENTADO Y SI VAN ############################
+    def obtener_turnos_por_dni_paciente(self, dni_paciente):
+        # Lo hizo la IA, no lo controle, ni esta implementado en el DAO
+        """
+        Obtiene todos los turnos asociados a un paciente por su DNI.
+        """
+        try:
+            paciente = self.paciente_dao.obtener_por_id(dni_paciente)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar el paciente {dni_paciente}: {e}")
+        
+        if not paciente or paciente.activo == 0:
+            raise ValueError(f"No existe un paciente activo con DNI {dni_paciente}.")
+
+        try:
+            return self.turno_dao.obtener_turnos_por_dni_paciente(dni_paciente)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos por DNI de paciente: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos del paciente.")
+        
+    def procesar_ausentes_dia_anterior(self):
+        #Ya seria mucho implementar esto? 
+        """
+        Método diseñado para ser llamado por un proceso automático (cron job).
+        Marca como 'ausente' todos los turnos 'programado' de ayer.
+        """
+        ayer = (datetime.now() - timedelta(days=1)).date()
+        
+        try:
+            # Esta lógica debería estar implementada en el DAO con una única consulta UPDATE
+            conteo_actualizado = self.turno_dao.marcar_ausentes_por_fecha(ayer)
+            print(f"[JOB OK] {conteo_actualizado} turnos de la fecha {ayer} marcados como ausentes.")
+            return conteo_actualizado
+        
+        except DatabaseError as e:
+            print(f"[ERROR DB AUTOMÁTICO] Fallo al procesar ausentes de ayer: {e}")
+            raise RuntimeError("Fallo en el proceso automático de marcado de ausentes.")
