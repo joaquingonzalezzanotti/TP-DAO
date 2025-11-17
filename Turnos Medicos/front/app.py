@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import calendar
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import simpledialog
@@ -119,11 +120,18 @@ class App(tk.Tk):
         self.entry_anio = ttk.Entry(top, width=8)
         self.entry_anio.grid(row=0, column=5, sticky='w')
 
+        hoy = date.today()
+        self.entry_mes.insert(0, str(hoy.month))
+        self.entry_anio.insert(0, str(hoy.year))
+
         btn_generar = ttk.Button(top, text='Generar todos los turnos del mes', command=self._on_generar_turnos)
         btn_generar.grid(row=0, column=6, sticky='w', padx=10)
 
+        btn_listar = ttk.Button(top, text='Listar turnos del período', command=self._load_turnos)
+        btn_listar.grid(row=0, column=7, sticky='w', padx=10)
+
         btn_refrescar = ttk.Button(top, text='Refrescar médicos', command=self._load_medicos)
-        btn_refrescar.grid(row=0, column=7, sticky='w')
+        btn_refrescar.grid(row=0, column=8, sticky='w')
 
         # Treeview de resultados
         cols = ('id', 'fecha', 'estado', 'medico')
@@ -147,8 +155,73 @@ class App(tk.Tk):
             self.combo_medicos['values'] = items
             if items:
                 self.combo_medicos.current(0)
+                # Refrescar turnos para el primer médico cargado
+                self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden cargar médicos: {e}')
+
+    def _load_turnos(self):
+        """Llena la grilla con los turnos del médico seleccionado en el mes/año ingresados."""
+        if self.turno_service is None or self.medico_dao is None:
+            messagebox.showerror('Error', 'Servicios de turnos o médicos no disponibles')
+            return
+
+        for item in self.tree_turnos.get_children():
+            self.tree_turnos.delete(item)
+
+        sel = self.combo_medicos.get()
+        if not sel:
+            return
+
+        try:
+            nro = int(sel.split('-')[0].strip())
+        except Exception:
+            messagebox.showerror('Error', 'Formato de médico inválido')
+            return
+
+        try:
+            medico = self.medico_dao.obtener_por_id(nro)
+            if not medico:
+                raise ValueError('Médico no encontrado')
+            medico_label = f"{medico.apellido}, {medico.nombre} (Mat. {medico.nro_matricula})"
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo obtener el médico: {e}')
+            return
+
+        mes = self.entry_mes.get()
+        anio = self.entry_anio.get()
+        ok, msg = self._validate_month_year(mes, anio)
+        if not ok:
+            messagebox.showerror('Error', msg)
+            return
+        mes = int(mes)
+        anio = int(anio)
+
+        inicio = date(anio, mes, 1)
+        _, dias_mes = calendar.monthrange(anio, mes)
+        fin = date(anio, mes, dias_mes)
+
+        try:
+            turnos = self.turno_service.obtener_turnos_por_medico_en_un_periodo(
+                nro,
+                inicio.isoformat(),
+                fin.isoformat()
+            )
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pueden cargar turnos: {e}')
+            return
+
+        for turno in turnos:
+            self.tree_turnos.insert(
+                '',
+                'end',
+                values=(
+                    getattr(turno, 'id_turno', ''),
+                    getattr(turno, 'fecha_hora_inicio', ''),
+                    getattr(turno, 'estado', ''),
+                    medico_label
+                )
+            )
 
     def _validate_month_year(self, mes, anio):
         # Validaciones básicas: mes 1-12, año >= actual, no permitir meses pasados en el mismo año
@@ -220,6 +293,7 @@ class App(tk.Tk):
                 raise RuntimeError('Servicio de médicos no disponible')
             creados = self.medico_service.generar_turnos_de_medico(nro, mes, anio)
             messagebox.showinfo('Ok', f'Se generaron {len(creados)} turnos')
+            self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error al generar', str(e))
 
@@ -266,6 +340,20 @@ class App(tk.Tk):
 
     def _refresh_abc(self):
         entidad = self.combo_entidad.get()
+
+        # Actualizar encabezados según la entidad seleccionada
+        headers_map = {
+            'Pacientes': ('DNI', 'Nombre', 'Apellido', 'Email'),
+            'Médicos': ('Matrícula', 'Nombre', 'Apellido', 'Email'),
+            'Especialidades': ('ID', 'Nombre', '-', 'Descripción')
+        }
+        labels = headers_map.get(entidad, ('PK', 'COL1', 'COL2', 'COL3'))
+        cols = ('pk', 'col1', 'col2', 'col3')
+        for col, lab in zip(cols, labels):
+            self.tree_abc.heading(col, text=lab)
+            # ajustar ancho si el label está vacío o corto
+            self.tree_abc.column(col, width=140 if lab else 80)
+
         for i in self.tree_abc.get_children():
             self.tree_abc.delete(i)
 
@@ -287,7 +375,7 @@ class App(tk.Tk):
                     raise RuntimeError('DAO Especialidad no disponible')
                 items = self.especialidad_dao.obtener_todos()
                 for s in items:
-                    self.tree_abc.insert('', 'end', values=(s.id_especialidad, s.nombre, '', s.descripcion if hasattr(s, 'descripcion') else ''))
+                    self.tree_abc.insert('', 'end', values=(s.id_especialidad, s.nombre, '', getattr(s, 'descripcion', '')))
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden listar {entidad}: {e}')
 
@@ -316,6 +404,11 @@ class App(tk.Tk):
             return
         pk = self.tree_abc.item(sel[0])['values'][0]
         if entidad == 'Pacientes':
+            try:
+                pk = int(str(pk).strip())
+            except Exception:
+                messagebox.showerror('Error', 'DNI inválido seleccionado')
+                return
             self._editar_paciente(pk)
         elif entidad == 'Médicos':
             self._editar_medico(pk)
@@ -332,7 +425,7 @@ class App(tk.Tk):
         if messagebox.askyesno('Confirmar', f'¿Eliminar {entidad} con id {pk}?'):
             try:
                 if entidad == 'Pacientes':
-                    self.paciente_dao.eliminar(pk)
+                    self.paciente_dao.eliminar(int(str(pk).strip()))
                 elif entidad == 'Médicos':
                     self.medico_dao.eliminar(pk)
                 elif entidad == 'Especialidades':
@@ -363,8 +456,10 @@ class App(tk.Tk):
             if fecha and not self._is_valid_date(fecha):
                 raise ValueError('Fecha inválida. Formato YYYY-MM-DD.')
 
+            dni_int = int(str(dni).strip())
+
             from modelos.paciente import Paciente
-            p = Paciente(dni, nombre, apellido, fecha, email, direccion)
+            p = Paciente(dni_int, nombre, apellido, fecha, email, direccion)
             self.paciente_dao.crear(p)
             messagebox.showinfo('OK', 'Paciente creado')
             self._refresh_abc()
@@ -373,7 +468,8 @@ class App(tk.Tk):
 
     def _editar_paciente(self, dni):
         try:
-            p = self.paciente_dao.obtener_por_id(dni)
+            dni_int = int(str(dni).strip())
+            p = self.paciente_dao.obtener_por_id(dni_int)
             if not p:
                 raise ValueError('Paciente no encontrado')
             nombre = simpledialog.askstring('Editar paciente', 'Nombre:', initialvalue=p.nombre)
