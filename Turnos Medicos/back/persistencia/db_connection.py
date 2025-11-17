@@ -4,8 +4,18 @@ import os
 class DBConnection:
     _instance = None
 
-    def __new__(cls, db_path="turnos_medicos.db"):
+    def __new__(cls, db_path=None):
         if cls._instance is None:
+            # Si no se pasa ruta, usar archivo turnos_medicos.db en la carpeta de este módulo
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            if db_path is None:
+                db_path = os.path.join(base_dir, "turnos_medicos.db")
+            else:
+                # expandir ~ y convertir rutas relativas a absolute respecto a este módulo
+                db_path = os.path.expanduser(db_path)
+                if not os.path.isabs(db_path):
+                    db_path = os.path.join(base_dir, db_path)
+
             cls._instance = super().__new__(cls)
             cls._instance._initialize(db_path)
         return cls._instance
@@ -40,7 +50,7 @@ class DBConnection:
         cur.execute('''
         CREATE TABLE IF NOT EXISTS Especialidad (
             id_especialidad INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre UNIQUE TEXT NOT NULL,
+            nombre TEXT NOT NULL UNIQUE,
             descripcion TEXT,
             activo INTEGER DEFAULT 1
         )
@@ -122,7 +132,7 @@ class DBConnection:
         )
         ''')
 
-        """Persistencia de datos iniciales, por ahora no hay datos iniciales.
+        # Persistencia de datos iniciales, por ahora no hay datos iniciales.
 
         # Datos iniciales
         cur.executemany('''
@@ -133,5 +143,4 @@ class DBConnection:
             (2, 'Pediatría', 'Atención a niños'),
             (3, 'Cardiología', 'Enfermedades del corazón')
         ])
-        """
         self.conn.commit()

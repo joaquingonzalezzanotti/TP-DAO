@@ -4,9 +4,8 @@ import re
 import calendar
 import tkinter as tk
 from tkinter import messagebox
-from tkinter import simpledialog
 from tkinter import ttk
-from datetime import date
+from datetime import date, datetime
 
 # Ajustar rutas para poder importar módulos del backend
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -22,9 +21,14 @@ try:
     from medico_service import MedicoService
     from turno_service import TurnoService
     from reporte_service import ReporteService
+    from consulta_service import ConsultaService
     from persistencia.dao.paciente_dao import PacienteDAO
     from persistencia.dao.medico_dao import MedicoDAO
     from persistencia.dao.especialidad_dao import EspecialidadDAO
+    from persistencia.dao.receta_dao import RecetaDAO
+    from persistencia.dao.historial_clinico_dao import HistorialClinicoDAO
+    from modelos.historial_clinico import HistorialClinico
+    from modelos.receta import Receta
 except Exception as e:
     # Si falla la importación, mostraremos un diálogo más tarde.
     IMPORT_ERROR = e
@@ -58,17 +62,23 @@ class App(tk.Tk):
             self.medico_service = MedicoService()
             self.turno_service = TurnoService()
             self.reporte_service = ReporteService()
+            self.consulta_service = ConsultaService()
             self.paciente_dao = PacienteDAO()
             self.medico_dao = MedicoDAO()
             self.especialidad_dao = EspecialidadDAO()
+            self.receta_dao = RecetaDAO()
+            self.historial_dao = HistorialClinicoDAO()
         except Exception:
             # tolerar inicialización fallida; manejaremos con mensajes en botones
             self.medico_service = None
             self.turno_service = None
             self.reporte_service = None
+            self.consulta_service = None
             self.paciente_dao = None
             self.medico_dao = None
             self.especialidad_dao = None
+            self.receta_dao = None
+            self.historial_dao = None
 
         self._create_widgets()
 
@@ -90,11 +100,10 @@ class App(tk.Tk):
         nb.add(frame_abc, text='ABC (Pacientes / Médicos / Especialidades)')
         self._build_abc_tab(frame_abc)
 
-        # Pestaña Otros (placeholders)
-        frame_otros = ttk.Frame(nb)
-        nb.add(frame_otros, text='Consultas / Recetas / Historial')
-        lbl = ttk.Label(frame_otros, text='Secciones de Consultas, Recetas y Historial clínico: en desarrollo.')
-        lbl.pack(padx=12, pady=12)
+        # Pestaña Historial
+        frame_historial = ttk.Frame(nb)
+        nb.add(frame_historial, text='Consultas / Recetas / Historial')
+        self._build_historial_tab(frame_historial)
 
         # Pestaña Reportes
         frame_reportes = ttk.Frame(nb)
@@ -134,14 +143,86 @@ class App(tk.Tk):
         btn_refrescar.grid(row=0, column=8, sticky='w')
 
         # Treeview de resultados
-        cols = ('id', 'fecha', 'estado', 'medico')
+        cols = ('id', 'fecha', 'estado', 'paciente', 'medico')
         self.tree_turnos = ttk.Treeview(parent, columns=cols, show='headings')
         for c in cols:
             self.tree_turnos.heading(c, text=c.capitalize())
             self.tree_turnos.column(c, width=150)
         self.tree_turnos.pack(fill='both', expand=True, padx=8, pady=8)
 
+        form = ttk.LabelFrame(parent, text='Registrar turno (seleccione un horario de la tabla)')
+        form.pack(fill='x', padx=8, pady=(0, 8))
+
+        ttk.Label(form, text='DNI paciente:').grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        self.entry_turno_dni = ttk.Entry(form, width=14)
+        self.entry_turno_dni.grid(row=0, column=1, sticky='w', padx=4, pady=4)
+
+        ttk.Label(form, text='Motivo:').grid(row=0, column=2, sticky='w', padx=4, pady=4)
+        self.entry_turno_motivo = ttk.Entry(form, width=35)
+        self.entry_turno_motivo.grid(row=0, column=3, sticky='we', padx=4, pady=4)
+
+        ttk.Label(form, text='Observaciones:').grid(row=1, column=0, sticky='w', padx=4, pady=4)
+        self.entry_turno_obs = ttk.Entry(form, width=60)
+        self.entry_turno_obs.grid(row=1, column=1, columnspan=3, sticky='we', padx=4, pady=4)
+
+        btn_programar = ttk.Button(form, text='Asignar turno al paciente', command=self._on_programar_turno)
+        btn_programar.grid(row=0, column=4, rowspan=2, padx=10, pady=4, sticky='nsw')
+
+        form.columnconfigure(3, weight=1)
+
         self._load_medicos()
+
+    def _build_historial_tab(self, parent):
+        pad = {'padx': 8, 'pady': 8}
+
+        top = ttk.Frame(parent)
+        top.pack(fill='x', **pad)
+
+        ttk.Label(top, text='DNI Paciente:').grid(row=0, column=0, sticky='w')
+        self.entry_hist_dni = ttk.Entry(top, width=16)
+        self.entry_hist_dni.grid(row=0, column=1, sticky='w', padx=(4, 12))
+
+        ttk.Button(top, text='Cargar historial', command=self._load_historial).grid(row=0, column=2, sticky='w')
+        ttk.Button(top, text='Registrar consulta', command=self._on_nueva_consulta).grid(row=0, column=3, sticky='w', padx=6)
+        ttk.Button(top, text='Registrar receta', command=self._on_nueva_receta).grid(row=0, column=4, sticky='w')
+
+        self.historial_info_var = tk.StringVar(value='Ingrese un DNI y presione "Cargar historial".')
+        ttk.Label(parent, textvariable=self.historial_info_var).pack(fill='x', padx=10)
+
+        main = ttk.Frame(parent)
+        main.pack(fill='both', expand=True, padx=8, pady=4)
+
+        left = ttk.LabelFrame(main, text='Consultas registradas')
+        left.pack(side='left', fill='both', expand=True, padx=(0, 4))
+
+        cols = ('id', 'fecha', 'medico', 'diagnostico')
+        self.tree_consultas = ttk.Treeview(left, columns=cols, show='headings', height=12)
+        headings = {
+            'id': 'ID',
+            'fecha': 'Fecha/Hora',
+            'medico': 'Médico',
+            'diagnostico': 'Diagnóstico'
+        }
+        widths = {'id': 60, 'fecha': 160, 'medico': 190, 'diagnostico': 260}
+        for col in cols:
+            self.tree_consultas.heading(col, text=headings[col])
+            self.tree_consultas.column(col, width=widths[col], anchor='w')
+        self.tree_consultas.pack(side='left', fill='both', expand=True)
+        sb = ttk.Scrollbar(left, orient='vertical', command=self.tree_consultas.yview)
+        sb.pack(side='right', fill='y')
+        self.tree_consultas.configure(yscrollcommand=sb.set)
+        self.tree_consultas.bind('<<TreeviewSelect>>', self._on_consulta_select)
+
+        right = ttk.LabelFrame(main, text='Receta de la consulta seleccionada')
+        right.pack(side='left', fill='both', expand=True, padx=(4, 0))
+
+        self.receta_text = tk.Text(right, height=15, wrap='word')
+        self.receta_text.pack(fill='both', expand=True, padx=4, pady=4)
+        self.receta_text.configure(state='disabled')
+        self._set_receta_text('Seleccione una consulta para ver su receta.')
+
+        self.historial_consultas = {}
+        self.selected_consulta_id = None
 
     def _load_medicos(self):
         try:
@@ -212,16 +293,264 @@ class App(tk.Tk):
             return
 
         for turno in turnos:
+            fecha_val = getattr(turno, 'fecha_hora_inicio', '')
+            if isinstance(fecha_val, datetime):
+                fecha_val = fecha_val.strftime("%Y-%m-%d %H:%M")
+
+            paciente_val = ''
+            dni_paciente = getattr(turno, 'dni_paciente', None)
+            if dni_paciente:
+                paciente_val = str(dni_paciente)
+                if self.paciente_dao is not None:
+                    try:
+                        paciente = self.paciente_dao.obtener_por_id(dni_paciente)
+                        if paciente:
+                            paciente_val = f"{dni_paciente} - {paciente.apellido}, {paciente.nombre}"
+                    except Exception:
+                        paciente_val = str(dni_paciente)
+
             self.tree_turnos.insert(
                 '',
                 'end',
                 values=(
                     getattr(turno, 'id_turno', ''),
-                    getattr(turno, 'fecha_hora_inicio', ''),
+                    fecha_val,
                     getattr(turno, 'estado', ''),
+                    paciente_val,
                     medico_label
                 )
             )
+
+    def _load_historial(self):
+        if self.consulta_service is None:
+            messagebox.showerror('Error', 'Servicio de consultas no disponible')
+            return
+
+        dni = self.entry_hist_dni.get().strip()
+        if not self._is_valid_dni(dni):
+            messagebox.showerror('Error', 'Ingrese un DNI válido para consultar el historial.')
+            return
+
+        dni_int = int(dni)
+        self.selected_consulta_id = None
+        self.historial_consultas = {}
+        for item in self.tree_consultas.get_children():
+            self.tree_consultas.delete(item)
+
+        self._set_receta_text('Seleccione una consulta para ver su receta.')
+
+        try:
+            consultas = self.consulta_service.obtener_consultas_por_paciente(dni_int)
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo cargar el historial: {e}')
+            return
+
+        label = f'Consultas de DNI {dni_int}'
+        if self.paciente_dao is not None:
+            try:
+                paciente = self.paciente_dao.obtener_por_id(dni_int)
+                if paciente:
+                    label = f"{paciente.apellido}, {paciente.nombre} (DNI {dni_int})"
+            except Exception:
+                pass
+        self.historial_info_var.set(label)
+
+        if not consultas:
+            self._set_receta_text('No hay consultas registradas para este paciente.')
+            return
+
+        consultas_ordenadas = sorted(
+            consultas,
+            key=lambda c: getattr(c, 'fecha_hora', datetime.min)
+        )
+
+        for consulta in consultas_ordenadas:
+            fecha_obj = getattr(consulta, 'fecha_hora', None)
+            fecha_val = fecha_obj.strftime("%Y-%m-%d %H:%M") if isinstance(fecha_obj, datetime) else str(fecha_obj)
+
+            medico_label = str(getattr(consulta, 'nro_matricula_medico', ''))
+            if self.medico_dao is not None and getattr(consulta, 'nro_matricula_medico', None):
+                try:
+                    medico = self.medico_dao.obtener_por_id(consulta.nro_matricula_medico)
+                    if medico:
+                        medico_label = f"{medico.apellido}, {medico.nombre} (Mat. {medico.nro_matricula})"
+                except Exception:
+                    medico_label = str(getattr(consulta, 'nro_matricula_medico', ''))
+
+            consulta_id = getattr(consulta, 'id_consulta')
+            self.historial_consultas[consulta_id] = consulta
+            self.tree_consultas.insert(
+                '',
+                'end',
+                values=(
+                    consulta_id,
+                    fecha_val,
+                    medico_label,
+                    getattr(consulta, 'diagnostico', '')
+                )
+            )
+
+        self._ensure_historial_registrado(dni_int)
+
+    def _ensure_historial_registrado(self, dni_paciente):
+        if self.historial_dao is None:
+            return
+        try:
+            if not self.historial_dao.obtener_por_id(dni_paciente):
+                self.historial_dao.crear(HistorialClinico(dni_paciente))
+        except Exception:
+            pass
+
+    def _set_receta_text(self, contenido):
+        self.receta_text.configure(state='normal')
+        self.receta_text.delete('1.0', tk.END)
+        self.receta_text.insert('1.0', contenido)
+        self.receta_text.configure(state='disabled')
+
+    def _on_consulta_select(self, _event=None):
+        sel = self.tree_consultas.selection()
+        if not sel:
+            return
+        valores = self.tree_consultas.item(sel[0]).get('values', [])
+        if not valores:
+            return
+        try:
+            consulta_id = int(valores[0])
+        except Exception:
+            consulta_id = valores[0]
+        self.selected_consulta_id = consulta_id
+        self._mostrar_receta_para_consulta(consulta_id)
+
+    def _mostrar_receta_para_consulta(self, consulta_id):
+        if self.receta_dao is None:
+            self._set_receta_text('Gestión de recetas no disponible.')
+            return
+        try:
+            receta = self.receta_dao.obtener_por_consulta(consulta_id)
+        except Exception as e:
+            self._set_receta_text(f'No se pudo cargar la receta: {e}')
+            return
+
+        if not receta:
+            self._set_receta_text('No hay receta registrada para esta consulta.')
+            return
+
+        fecha_val = receta.fecha_emision.strftime("%Y-%m-%d") if hasattr(receta.fecha_emision, 'strftime') else str(receta.fecha_emision)
+        detalle = receta.detalle or 'Sin detalle adicional.'
+        texto = (
+            f"ID Receta: {receta.id_receta}\n"
+            f"Fecha de emisión: {fecha_val}\n\n"
+            f"Medicamentos:\n{receta.medicamentos}\n\n"
+            f"Detalle:\n{detalle}"
+        )
+        self._set_receta_text(texto)
+
+    def _on_nueva_consulta(self):
+        if self.consulta_service is None:
+            messagebox.showerror('Error', 'Servicio de consultas no disponible')
+            return
+
+        dni = self.entry_hist_dni.get().strip()
+        if not self._is_valid_dni(dni):
+            messagebox.showerror('Error', 'Ingrese un DNI válido antes de registrar la consulta.')
+            return
+        dni_int = int(dni)
+
+        data = self._open_form_dialog(
+            'Registrar consulta',
+            [
+                ('fecha', 'Fecha y hora (YYYY-MM-DD HH:MM)'),
+                ('matricula', 'Matrícula del médico'),
+                ('diagnostico', 'Diagnóstico'),
+                ('observaciones', 'Observaciones')
+            ],
+            {
+                'fecha': datetime.now().strftime("%Y-%m-%d %H:%M")
+            }
+        )
+        if not data:
+            return
+
+        fecha = data.get('fecha')
+        matricula = data.get('matricula')
+        diagnostico = data.get('diagnostico')
+        observaciones = data.get('observaciones') or None
+
+        if not fecha or not matricula or not diagnostico:
+            messagebox.showerror('Error', 'Fecha, matrícula y diagnóstico son obligatorios.')
+            return
+
+        try:
+            matricula_int = int(matricula)
+        except ValueError:
+            messagebox.showerror('Error', 'La matrícula debe ser numérica.')
+            return
+
+        try:
+            self.consulta_service.agregar_consulta(
+                fecha, diagnostico, observaciones, dni_int, matricula_int
+            )
+            self._ensure_historial_registrado(dni_int)
+            messagebox.showinfo('OK', 'Consulta registrada correctamente.')
+            self._load_historial()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
+
+    def _on_nueva_receta(self):
+        if self.receta_dao is None:
+            messagebox.showerror('Error', 'Gestión de recetas no disponible')
+            return
+
+        if not self.selected_consulta_id:
+            messagebox.showwarning('Atención', 'Seleccione primero la consulta para la cual desea registrar la receta.')
+            return
+
+        consulta_id = self.selected_consulta_id
+        try:
+            existente = self.receta_dao.obtener_por_consulta(consulta_id)
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo verificar recetas existentes: {e}')
+            return
+
+        if existente:
+            messagebox.showwarning('Receta existente', 'La consulta seleccionada ya tiene una receta registrada.')
+            self._mostrar_receta_para_consulta(consulta_id)
+            return
+
+        data = self._open_form_dialog(
+            'Registrar receta',
+            [
+                ('fecha', 'Fecha de emisión (YYYY-MM-DD)'),
+                ('medicamentos', 'Medicamentos'),
+                ('detalle', 'Detalle')
+            ],
+            {
+                'fecha': date.today().isoformat()
+            }
+        )
+        if not data:
+            return
+
+        fecha = data.get('fecha') or date.today().isoformat()
+        medicamentos = data.get('medicamentos')
+        detalle = data.get('detalle') or None
+
+        if not medicamentos:
+            messagebox.showerror('Error', 'El campo de medicamentos es obligatorio.')
+            return
+
+        try:
+            receta = Receta(
+                fecha_emision=fecha,
+                medicamentos=medicamentos,
+                detalle=detalle,
+                id_consulta=consulta_id
+            )
+            self.receta_dao.crear(receta)
+            messagebox.showinfo('OK', 'Receta registrada correctamente.')
+            self._mostrar_receta_para_consulta(consulta_id)
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
 
     def _validate_month_year(self, mes, anio):
         # Validaciones básicas: mes 1-12, año >= actual, no permitir meses pasados en el mismo año
@@ -296,6 +625,123 @@ class App(tk.Tk):
             self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error al generar', str(e))
+
+    def _on_programar_turno(self):
+        if self.turno_service is None:
+            messagebox.showerror('Error', 'Servicio de turnos no disponible')
+            return
+
+        seleccion = self.tree_turnos.selection()
+        if not seleccion:
+            messagebox.showwarning('Atención', 'Seleccione un turno de la tabla')
+            return
+
+        item = self.tree_turnos.item(seleccion[0])
+        valores = item.get('values', [])
+        if not valores:
+            messagebox.showerror('Error', 'No se pudo determinar el turno seleccionado')
+            return
+
+        turno_id = valores[0]
+        estado_actual = str(valores[2]).lower() if len(valores) > 2 and valores[2] else ''
+        if estado_actual and estado_actual != 'disponible':
+            messagebox.showerror('Turno no disponible', 'Solo se pueden asignar turnos en estado "disponible".')
+            return
+
+        dni = self.entry_turno_dni.get().strip()
+        motivo = self.entry_turno_motivo.get().strip()
+        observ = self.entry_turno_obs.get().strip()
+
+        if not self._is_valid_dni(dni):
+            messagebox.showerror('Error', 'Ingrese un DNI válido (solo números).')
+            return
+        if not motivo:
+            messagebox.showerror('Error', 'El motivo es obligatorio.')
+            return
+
+        try:
+            turno_id = int(turno_id)
+            dni_int = int(dni)
+        except Exception:
+            messagebox.showerror('Error', 'No se pudo interpretar el turno o el DNI.')
+            return
+
+        observ = observ or None
+
+        try:
+            self.turno_service.programar_turno(turno_id, dni_int, motivo, observ)
+            messagebox.showinfo('OK', 'Turno asignado correctamente.')
+            self.entry_turno_motivo.delete(0, tk.END)
+            self.entry_turno_obs.delete(0, tk.END)
+            self.entry_turno_dni.delete(0, tk.END)
+            self._load_turnos()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
+    def _open_form_dialog(self, title, fields, initial=None):
+        """
+        Reusable modal dialog for data entry.
+        fields: list of tuples (key, label[, options dict like {'readonly': True}])
+        """
+        initial = initial or {}
+
+        dlg = tk.Toplevel(self)
+        dlg.title(title)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        container = ttk.Frame(dlg, padding=10)
+        container.pack(fill='both', expand=True)
+
+        entries = {}
+        for idx, field in enumerate(fields):
+            opts = {}
+            if isinstance(field, dict):
+                key = field.get('key')
+                label = field.get('label', key)
+                opts = field
+            else:
+                if len(field) == 2:
+                    key, label = field
+                elif len(field) == 3:
+                    key, label, opts = field
+                else:
+                    raise ValueError("Los campos deben definirse como (key, label[, options]).")
+
+            readonly = bool(opts.get('readonly', False))
+
+            ttk.Label(container, text=label).grid(row=idx, column=0, sticky='w', padx=4, pady=4)
+            entry = ttk.Entry(container, width=40)
+            entry.grid(row=idx, column=1, sticky='we', padx=4, pady=4)
+            entry.insert(0, str(initial.get(key, '') or ''))
+            if readonly:
+                entry.state(['readonly'])
+            entries[key] = entry
+
+        btn_frame = ttk.Frame(container)
+        btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=(12, 0))
+
+        result = {'data': None}
+
+        def accept():
+            data = {}
+            for key, entry in entries.items():
+                data[key] = entry.get().strip()
+            result['data'] = data
+            dlg.destroy()
+
+        def cancel():
+            result['data'] = None
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text='Cancelar', command=cancel).pack(side='right', padx=4)
+        ttk.Button(btn_frame, text='Aceptar', command=accept).pack(side='right', padx=4)
+
+        dlg.bind('<Return>', lambda event: accept())
+        dlg.bind('<Escape>', lambda event: cancel())
+        container.columnconfigure(1, weight=1)
+        dlg.wait_window()
+        return result['data']
 
     # ---------- ABC Tab ----------
     def _build_abc_tab(self, parent):
@@ -437,14 +883,23 @@ class App(tk.Tk):
 
     # ----- Paciente CRUD -----
     def _crear_paciente(self):
-        dni = simpledialog.askstring('Nuevo paciente', 'DNI:')
-        if not dni:
+        campos = [
+            ('dni', 'DNI'),
+            ('nombre', 'Nombre'),
+            ('apellido', 'Apellido'),
+            ('email', 'Email'),
+            ('direccion', 'Dirección'),
+            ('fecha', 'Fecha de nacimiento (YYYY-MM-DD)')
+        ]
+        data = self._open_form_dialog('Nuevo paciente', campos)
+        if not data:
             return
-        nombre = simpledialog.askstring('Nuevo paciente', 'Nombre:')
-        apellido = simpledialog.askstring('Nuevo paciente', 'Apellido:')
-        email = simpledialog.askstring('Nuevo paciente', 'Email:')
-        direccion = simpledialog.askstring('Nuevo paciente', 'Dirección:')
-        fecha = simpledialog.askstring('Nuevo paciente', 'Fecha de nacimiento (YYYY-MM-DD):')
+        dni = data.get('dni')
+        nombre = data.get('nombre')
+        apellido = data.get('apellido')
+        email = data.get('email')
+        direccion = data.get('direccion')
+        fecha = data.get('fecha')
         try:
             # Validaciones
             if not self._is_valid_dni(dni):
@@ -472,14 +927,29 @@ class App(tk.Tk):
             p = self.paciente_dao.obtener_por_id(dni_int)
             if not p:
                 raise ValueError('Paciente no encontrado')
-            nombre = simpledialog.askstring('Editar paciente', 'Nombre:', initialvalue=p.nombre)
-            apellido = simpledialog.askstring('Editar paciente', 'Apellido:', initialvalue=p.apellido)
-            email = simpledialog.askstring('Editar paciente', 'Email:', initialvalue=p.email)
-            direccion = simpledialog.askstring('Editar paciente', 'Dirección:', initialvalue=p.direccion)
-            p.nombre = nombre
-            p.apellido = apellido
-            p.email = email
-            p.direccion = direccion
+            data = self._open_form_dialog(
+                'Editar paciente',
+                [
+                    ('dni', 'DNI', {'readonly': True}),
+                    ('nombre', 'Nombre'),
+                    ('apellido', 'Apellido'),
+                    ('email', 'Email'),
+                    ('direccion', 'Dirección')
+                ],
+                {
+                    'dni': p.dni,
+                    'nombre': p.nombre,
+                    'apellido': p.apellido,
+                    'email': p.email,
+                    'direccion': p.direccion
+                }
+            )
+            if not data:
+                return
+            p.nombre = data.get('nombre')
+            p.apellido = data.get('apellido')
+            p.email = data.get('email')
+            p.direccion = data.get('direccion')
             # Validaciones
             if not p.nombre or not p.apellido:
                 raise ValueError('Nombre y apellido son obligatorios.')
@@ -494,23 +964,35 @@ class App(tk.Tk):
     # ----- Médico CRUD -----
     def _crear_medico(self):
         try:
-            nro = simpledialog.askinteger('Nuevo médico', 'Matrícula:')
-            nombre = simpledialog.askstring('Nuevo médico', 'Nombre:')
-            apellido = simpledialog.askstring('Nuevo médico', 'Apellido:')
-            email = simpledialog.askstring('Nuevo médico', 'Email:')
-            id_esp = simpledialog.askinteger('Nuevo médico', 'ID Especialidad:')
+            data = self._open_form_dialog(
+                'Nuevo médico',
+                [
+                    ('nro', 'Matrícula'),
+                    ('nombre', 'Nombre'),
+                    ('apellido', 'Apellido'),
+                    ('email', 'Email'),
+                    ('id_esp', 'ID Especialidad')
+                ]
+            )
+            if not data:
+                return
+            nro = data.get('nro')
+            nombre = data.get('nombre')
+            apellido = data.get('apellido')
+            email = data.get('email')
+            id_esp = data.get('id_esp')
             # Validaciones
-            if nro is None:
+            if not nro or not nro.isdigit():
                 raise ValueError('Matrícula es obligatoria y numérica.')
             if not nombre or not apellido:
                 raise ValueError('Nombre y apellido son obligatorios.')
             if email and not self._is_valid_email(email):
                 raise ValueError('Email inválido.')
-            if id_esp is None:
+            if not id_esp or not id_esp.isdigit():
                 raise ValueError('ID de especialidad es obligatorio y numérico.')
 
             from modelos.medico import Medico
-            m = Medico(nro, nombre, apellido, email, id_esp)
+            m = Medico(int(nro), nombre, apellido, email, int(id_esp))
             self.medico_dao.crear(m)
             messagebox.showinfo('OK', 'Médico creado')
             self._refresh_abc()
@@ -522,14 +1004,29 @@ class App(tk.Tk):
             m = self.medico_dao.obtener_por_id(nro)
             if not m:
                 raise ValueError('Médico no encontrado')
-            nombre = simpledialog.askstring('Editar médico', 'Nombre:', initialvalue=m.nombre)
-            apellido = simpledialog.askstring('Editar médico', 'Apellido:', initialvalue=m.apellido)
-            email = simpledialog.askstring('Editar médico', 'Email:', initialvalue=m.email)
-            id_esp = simpledialog.askinteger('Editar médico', 'ID Especialidad:', initialvalue=m.id_especialidad)
-            m.nombre = nombre
-            m.apellido = apellido
-            m.email = email
-            m.id_especialidad = id_esp
+            data = self._open_form_dialog(
+                'Editar médico',
+                [
+                    ('nro', 'Matrícula', {'readonly': True}),
+                    ('nombre', 'Nombre'),
+                    ('apellido', 'Apellido'),
+                    ('email', 'Email'),
+                    ('id_esp', 'ID Especialidad')
+                ],
+                {
+                    'nro': m.nro_matricula,
+                    'nombre': m.nombre,
+                    'apellido': m.apellido,
+                    'email': m.email,
+                    'id_esp': m.id_especialidad
+                }
+            )
+            if not data:
+                return
+            m.nombre = data.get('nombre')
+            m.apellido = data.get('apellido')
+            m.email = data.get('email')
+            m.id_especialidad = int(data.get('id_esp')) if data.get('id_esp') else None
             # Validaciones
             if not m.nombre or not m.apellido:
                 raise ValueError('Nombre y apellido son obligatorios.')
@@ -546,8 +1043,17 @@ class App(tk.Tk):
     # ----- Especialidad CRUD -----
     def _crear_especialidad(self):
         try:
-            nombre = simpledialog.askstring('Nueva especialidad', 'Nombre:')
-            descripcion = simpledialog.askstring('Nueva especialidad', 'Descripción:')
+            data = self._open_form_dialog(
+                'Nueva especialidad',
+                [
+                    ('nombre', 'Nombre'),
+                    ('descripcion', 'Descripción')
+                ]
+            )
+            if not data:
+                return
+            nombre = data.get('nombre')
+            descripcion = data.get('descripcion')
             if not nombre or not nombre.strip():
                 raise ValueError('Nombre de especialidad obligatorio.')
             from modelos.especialidad import Especialidad
@@ -563,11 +1069,22 @@ class App(tk.Tk):
             s = self.especialidad_dao.obtener_por_id(id_esp)
             if not s:
                 raise ValueError('Especialidad no encontrada')
-            nombre = simpledialog.askstring('Editar especialidad', 'Nombre:', initialvalue=s.nombre)
-            descripcion = simpledialog.askstring('Editar especialidad', 'Descripción:', initialvalue=getattr(s, 'descripcion', ''))
-            s.nombre = nombre
+            data = self._open_form_dialog(
+                'Editar especialidad',
+                [
+                    ('nombre', 'Nombre'),
+                    ('descripcion', 'Descripción')
+                ],
+                {
+                    'nombre': s.nombre,
+                    'descripcion': getattr(s, 'descripcion', '')
+                }
+            )
+            if not data:
+                return
+            s.nombre = data.get('nombre')
             if hasattr(s, 'descripcion'):
-                s.descripcion = descripcion
+                s.descripcion = data.get('descripcion')
             if not s.nombre or not s.nombre.strip():
                 raise ValueError('Nombre de especialidad obligatorio.')
             self.especialidad_dao.actualizar(s)

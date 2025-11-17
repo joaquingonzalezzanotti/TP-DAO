@@ -78,13 +78,13 @@ class TurnoDAO(BaseDAO):
                 AND strftime('%Y', fecha_hora_inicio) = ?
         """
 
-        self.cursor.execute(query, (
+        self.cur.execute(query, (
             nro_matricula_medico,
             f"{mes:02d}",
             str(anio)
         ))
 
-        cantidad = self.cursor.fetchone()[0]
+        cantidad = self.cur.fetchone()[0]
         return cantidad > 0
     
     def obtener_turnos_disponibles_por_medico_y_fecha(self, nro_matricula_medico, fecha):
