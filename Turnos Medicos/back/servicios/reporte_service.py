@@ -313,8 +313,8 @@ class ReporteService:
         fecha_inicio_str = self._format_date_for_filename(fecha_inicio)
         fecha_fin_str = self._format_date_for_filename(fecha_fin)
         nombre_archivo = f"asistencias_vs_inasistencias_{fecha_inicio_str}_al_{fecha_fin_str}.pdf"
-
-        doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
+        ruta_salida = self._output_path(nombre_archivo)
+        doc = SimpleDocTemplate(ruta_salida, pagesize=A4)
         styles = getSampleStyleSheet()
         elements = []
 
@@ -323,7 +323,7 @@ class ReporteService:
         elements.append(Spacer(1, 12))
         resumen_text = (
             f"Período analizado: {fecha_inicio_str} a {fecha_fin_str}. "
-            "Se consideran asistencias los turnos en estado 'atendido' y "
+            "Se consideran asistencias los turnos en estado 'atendido' e "
             "inasistencias los turnos en estado 'ausente' o 'cancelado'."
         )
         elements.append(Paragraph(resumen_text, styles['Normal']))
