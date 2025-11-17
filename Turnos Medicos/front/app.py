@@ -22,13 +22,13 @@ try:
     from turno_service import TurnoService
     from reporte_service import ReporteService
     from consulta_service import ConsultaService
+    from receta_service import RecetaService
     from persistencia.dao.paciente_dao import PacienteDAO
     from persistencia.dao.medico_dao import MedicoDAO
     from persistencia.dao.especialidad_dao import EspecialidadDAO
     from persistencia.dao.receta_dao import RecetaDAO
     from persistencia.dao.historial_clinico_dao import HistorialClinicoDAO
     from modelos.historial_clinico import HistorialClinico
-    from modelos.receta import Receta
 except Exception as e:
     # Si falla la importación, mostraremos un diálogo más tarde.
     IMPORT_ERROR = e
@@ -63,6 +63,7 @@ class App(tk.Tk):
             self.turno_service = TurnoService()
             self.reporte_service = ReporteService()
             self.consulta_service = ConsultaService()
+            self.receta_service = RecetaService()
             self.paciente_dao = PacienteDAO()
             self.medico_dao = MedicoDAO()
             self.especialidad_dao = EspecialidadDAO()
@@ -74,6 +75,7 @@ class App(tk.Tk):
             self.turno_service = None
             self.reporte_service = None
             self.consulta_service = None
+            self.receta_service = None
             self.paciente_dao = None
             self.medico_dao = None
             self.especialidad_dao = None
@@ -497,8 +499,8 @@ class App(tk.Tk):
             messagebox.showerror('Error', str(e))
 
     def _on_nueva_receta(self):
-        if self.receta_dao is None:
-            messagebox.showerror('Error', 'Gestión de recetas no disponible')
+        if self.receta_service is None:
+            messagebox.showerror('Error', 'Generación de recetas no disponible')
             return
 
         if not self.selected_consulta_id:
@@ -506,16 +508,6 @@ class App(tk.Tk):
             return
 
         consulta_id = self.selected_consulta_id
-        try:
-            existente = self.receta_dao.obtener_por_consulta(consulta_id)
-        except Exception as e:
-            messagebox.showerror('Error', f'No se pudo verificar recetas existentes: {e}')
-            return
-
-        if existente:
-            messagebox.showwarning('Receta existente', 'La consulta seleccionada ya tiene una receta registrada.')
-            self._mostrar_receta_para_consulta(consulta_id)
-            return
 
         data = self._open_form_dialog(
             'Registrar receta',
@@ -540,14 +532,16 @@ class App(tk.Tk):
             return
 
         try:
-            receta = Receta(
+            receta, pdf_path = self.receta_service.registrar_receta(
                 fecha_emision=fecha,
                 medicamentos=medicamentos,
                 detalle=detalle,
                 id_consulta=consulta_id
             )
-            self.receta_dao.crear(receta)
-            messagebox.showinfo('OK', 'Receta registrada correctamente.')
+            mensaje = 'Receta registrada correctamente.'
+            if pdf_path:
+                mensaje += f"\nPDF generado en:\n{pdf_path}"
+            messagebox.showinfo('OK', mensaje)
             self._mostrar_receta_para_consulta(consulta_id)
         except Exception as e:
             messagebox.showerror('Error', str(e))
@@ -577,6 +571,7 @@ class App(tk.Tk):
 
     def _is_valid_date(self, fecha_str):
         try:
+            fecha_str = (fecha_str or "").strip()
             # yyyy-mm-dd
             parts = fecha_str.split('-')
             if len(parts) != 3:
@@ -1120,7 +1115,8 @@ class App(tk.Tk):
         combo = ttk.Combobox(dlg, state='readonly', values=[
             'Turnos por médico en período',
             'Cantidad por especialidad',
-            'Pacientes atendidos en período'
+            'Pacientes atendidos en período',
+            'Asistencias vs inasistencias'
         ])
         combo.pack(fill='x', padx=8)
         combo.current(0)
@@ -1149,7 +1145,7 @@ class App(tk.Tk):
                 ent_ff.grid(row=2, column=1, sticky='w')
             elif sel == 'Cantidad por especialidad':
                 ttk.Label(frm_inputs, text='(No se requieren parámetros)').grid(row=0, column=0, sticky='w')
-            elif sel == 'Pacientes atendidos en período':
+            elif sel in ('Pacientes atendidos en período', 'Asistencias vs inasistencias'):
                 lbl_fi.grid(row=0, column=0, sticky='w')
                 ent_fi.grid(row=0, column=1, sticky='w')
                 lbl_ff.grid(row=1, column=0, sticky='w')
@@ -1162,18 +1158,23 @@ class App(tk.Tk):
             tipo = combo.get()
             try:
                 if tipo == 'Turnos por médico en período':
-                    nro = int(ent_m.get())
-                    fi = ent_fi.get(); ff = ent_ff.get()
+                    nro = int(ent_m.get().strip())
+                    fi = ent_fi.get().strip(); ff = ent_ff.get().strip()
                     if not self._is_valid_date(fi) or not self._is_valid_date(ff):
                         raise ValueError('Fechas inválidas. Formato YYYY-MM-DD')
                     archivo = self.reporte_service.listado_turnos_por_medico_en_un_periodo(nro, fi, ff)
                 elif tipo == 'Cantidad por especialidad':
                     archivo = self.reporte_service.reporte_cantidad_turnos_por_especialidad()
                 elif tipo == 'Pacientes atendidos en período':
-                    fi = ent_fi.get(); ff = ent_ff.get()
+                    fi = ent_fi.get().strip(); ff = ent_ff.get().strip()
                     if not self._is_valid_date(fi) or not self._is_valid_date(ff):
                         raise ValueError('Fechas inválidas. Formato YYYY-MM-DD')
                     archivo = self.reporte_service.reporte_pacientes_atendidos_en_un_periodo(fi, ff)
+                elif tipo == 'Asistencias vs inasistencias':
+                    fi = ent_fi.get().strip(); ff = ent_ff.get().strip()
+                    if not self._is_valid_date(fi) or not self._is_valid_date(ff):
+                        raise ValueError('Fechas inválidas. Formato YYYY-MM-DD')
+                    archivo = self.reporte_service.asistencias_vs_inasistencias_de_pacientes(fi, ff)
                 else:
                     raise ValueError('Tipo de reporte no soportado')
 
