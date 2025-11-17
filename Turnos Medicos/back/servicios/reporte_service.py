@@ -1,3 +1,4 @@
+import os
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
@@ -19,6 +20,12 @@ class ReporteService:
     def __init__(self):
         self.turno_service = TurnoService()
         self.medico_service = MedicoService()
+        self._root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self._report_dir = os.path.join(self._root, "front", "salidas", "reportes")
+        os.makedirs(self._report_dir, exist_ok=True)
+
+    def _output_path(self, nombre_archivo):
+        return os.path.join(self._report_dir, nombre_archivo)
 
     def _format_date_for_filename(self, date_obj):
         """Helper para formatear la fecha a string para el nombre del archivo (solo YYYY-MM-DD)."""
@@ -47,7 +54,8 @@ class ReporteService:
         
         # Nombre del archivo
         nombre_archivo = f"turnos_{nro_matricula_medico}_{fecha_inicio_str}_al_{fecha_fin_str}.pdf"
-        doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
+        ruta_salida = self._output_path(nombre_archivo)
+        doc = SimpleDocTemplate(ruta_salida, pagesize=A4)
         
         # Crear estilos y elementos
         styles = getSampleStyleSheet()
@@ -64,8 +72,10 @@ class ReporteService:
         
         # Datos de la tabla
         data = [['ID', 'Fecha y Hora Inicio','Motivo', 'Observaciones', 'Estado', 'DNI Paciente']]
-        
-        for turno in turnos:
+
+        turnos_filtrados = [t for t in turnos if getattr(t, 'estado', '').lower() != 'disponible']
+
+        for turno in turnos_filtrados:
             # Asumo que fecha_hora_inicio es un objeto datetime o se puede convertir.
             fecha_hora_str = ""
             if isinstance(turno.fecha_hora_inicio, (datetime, date)):
@@ -122,7 +132,8 @@ class ReporteService:
             raise RuntimeError("Ocurrió un error técnico al obtener los datos para el reporte.")
         
         nombre_archivo = "reporte_cantidad_turnos_por_especialidad.pdf"
-        doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
+        ruta_salida = self._output_path(nombre_archivo)
+        doc = SimpleDocTemplate(ruta_salida, pagesize=A4)
         styles = getSampleStyleSheet()
         elements = []
         title = "Reporte de Cantidad de Turnos por Especialidad Médica"
@@ -196,8 +207,8 @@ class ReporteService:
         # 3. Construir el informe
         try:
             doc.build(elements)
-            print(f"[OK] Reporte PDF generado exitosamente: {nombre_archivo}")
-            return nombre_archivo
+            print(f"[OK] Reporte PDF generado exitosamente: {ruta_salida}")
+            return ruta_salida
         except Exception as e:
             print(f"[ERROR PDF] Fallo al construir el documento PDF: {e}")
             raise RuntimeError("Fallo interno al generar el archivo PDF.")
@@ -221,7 +232,8 @@ class ReporteService:
         
         # Nombre del archivo
         nombre_archivo = f"pacientes_atendidos_{fecha_inicio_str}_al_{fecha_fin_str}.pdf"
-        doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
+        ruta_salida = self._output_path(nombre_archivo)
+        doc = SimpleDocTemplate(ruta_salida, pagesize=A4)
         
         # Crear estilos y elementos
         styles = getSampleStyleSheet()
@@ -272,12 +284,88 @@ class ReporteService:
         # 4. Construir el informe
         try:
             doc.build(elements)
-            print(f"[OK] Reporte PDF generado exitosamente: {nombre_archivo}")
-            return nombre_archivo
+            print(f"[OK] Reporte PDF generado exitosamente: {ruta_salida}")
+            return ruta_salida
         except Exception as e:
             print(f"[ERROR PDF] Fallo al construir el documento PDF: {e}")
             raise RuntimeError("Fallo interno al generar el archivo PDF.")
         
-    def asistencias_vs_inacistencias_de_pacientes():
-        pass
+    def asistencias_vs_inasistencias_de_pacientes(self, fecha_inicio, fecha_fin):
+        """
+        Genera un gráfico comparando asistencias (turnos atendidos) versus
+        inasistencias (ausentes + cancelados) en el período indicado.
+        """
+        if not (fecha_inicio and fecha_fin):
+            raise ValueError("Debe indicar fecha de inicio y fin para este reporte.")
+
+        try:
+            resumen = self.turno_service.obtener_resumen_asistencias(fecha_inicio, fecha_fin)
+        except Exception as e:
+            print(f"[ERROR] Fallo al obtener el resumen de asistencias: {e}")
+            raise RuntimeError("Ocurrió un error técnico al obtener los datos del reporte.")
+
+        asistencias = resumen.get('atendido', 0)
+        inasistencias = resumen.get('ausente', 0) + resumen.get('cancelado', 0)
+
+        if asistencias == 0 and inasistencias == 0:
+            raise ValueError("No hay turnos registrados en el periodo seleccionado.")
+
+        fecha_inicio_str = self._format_date_for_filename(fecha_inicio)
+        fecha_fin_str = self._format_date_for_filename(fecha_fin)
+        nombre_archivo = f"asistencias_vs_inasistencias_{fecha_inicio_str}_al_{fecha_fin_str}.pdf"
+
+        doc = SimpleDocTemplate(nombre_archivo, pagesize=A4)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        title = "Asistencias vs Inasistencias de Pacientes"
+        elements.append(Paragraph(title, styles['Title']))
+        elements.append(Spacer(1, 12))
+        resumen_text = (
+            f"Período analizado: {fecha_inicio_str} a {fecha_fin_str}. "
+            "Se consideran asistencias los turnos en estado 'atendido' y "
+            "inasistencias los turnos en estado 'ausente' o 'cancelado'."
+        )
+        elements.append(Paragraph(resumen_text, styles['Normal']))
+        elements.append(Spacer(1, 12))
+
+        data = [
+            ['Categoría', 'Cantidad'],
+            ['Asistencias', asistencias],
+            ['Inasistencias', inasistencias]
+        ]
+        table = Table(data, colWidths=[2 * inch, 1.5 * inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(table)
+        elements.append(Spacer(1, 24))
+
+        # Gráfico
+        labels = ['Asistencias', 'Inasistencias']
+        valores = [asistencias, inasistencias]
+        colores = ['#4CAF50', '#F44336']
+
+        plt.figure(figsize=(5, 5))
+        plt.pie(valores, labels=labels, autopct='%1.1f%%', colors=colores, startangle=90)
+        plt.title('Distribución de asistencias e inasistencias')
+        plt.axis('equal')
+        img_buffer = BytesIO()
+        plt.savefig(img_buffer, format='png')
+        img_buffer.seek(0)
+        elements.append(Image(img_buffer, 4.5 * inch, 4.5 * inch))
+        plt.clf()
+
+        try:
+            doc.build(elements)
+            print(f"[OK] Reporte PDF generado exitosamente: {ruta_salida}")
+            return ruta_salida
+        except Exception as e:
+            print(f"[ERROR PDF] Fallo al construir el documento PDF: {e}")
+            raise RuntimeError("Fallo interno al generar el archivo PDF.")
 

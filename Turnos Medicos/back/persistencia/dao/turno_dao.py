@@ -1,3 +1,4 @@
+from datetime import datetime
 from .base_dao import BaseDAO
 from modelos.turno import Turno
 from persistencia.persistencia_errores import DatabaseError, IntegridadError
@@ -95,7 +96,10 @@ class TurnoDAO(BaseDAO):
             raise ValueError(f"Fecha inválida: {e}")
 
         self.cur.execute(
-            "SELECT * FROM Turno WHERE nro_matricula_medico=? AND date(fecha_hora_inicio)=?",
+            """SELECT * FROM Turno
+               WHERE nro_matricula_medico=?
+                 AND date(fecha_hora_inicio)=?
+               ORDER BY datetime(fecha_hora_inicio) ASC""",
             (nro_matricula_medico, fecha_str)
         )
         rows = self.cur.fetchall()
@@ -113,7 +117,8 @@ class TurnoDAO(BaseDAO):
                WHERE nro_matricula_medico=?
                  AND strftime('%m', fecha_hora_inicio)=?
                  AND strftime('%Y', fecha_hora_inicio)=?
-                 AND estado='disponible'""",
+                 AND estado='disponible'
+               ORDER BY datetime(fecha_hora_inicio) ASC""",
             (nro_matricula_medico, mes_str, anio_str)
         )
         rows = self.cur.fetchall()
@@ -133,7 +138,8 @@ class TurnoDAO(BaseDAO):
                JOIN Medico m ON t.nro_matricula_medico = m.nro_matricula
                WHERE m.id_especialidad=?
                  AND date(t.fecha_hora_inicio)=?
-                 AND t.estado='disponible'""",
+                 AND t.estado='disponible'
+               ORDER BY datetime(t.fecha_hora_inicio) ASC""",
             (id_especialidad, fecha_str)
         )
         rows = self.cur.fetchall()
@@ -152,7 +158,8 @@ class TurnoDAO(BaseDAO):
                WHERE m.id_especialidad=?
                  AND strftime('%m', t.fecha_hora_inicio)=?
                  AND strftime('%Y', t.fecha_hora_inicio)=?
-                 AND t.estado='disponible'""",
+                 AND t.estado='disponible'
+               ORDER BY datetime(t.fecha_hora_inicio) ASC""",
             (id_especialidad, mes_str, anio_str)
         )
         rows = self.cur.fetchall()
@@ -168,7 +175,8 @@ class TurnoDAO(BaseDAO):
         self.cur.execute(
             """SELECT * FROM Turno
                WHERE nro_matricula_medico=?
-                 AND date(fecha_hora_inicio) BETWEEN ? AND ?""",
+                 AND date(fecha_hora_inicio) BETWEEN ? AND ?
+               ORDER BY datetime(fecha_hora_inicio) ASC""",
             (nro_matricula_medico, fecha_inicio_str, fecha_fin_str)
         )
         rows = self.cur.fetchall()
@@ -192,11 +200,12 @@ class TurnoDAO(BaseDAO):
     
     def obtener_pacientes_atendidos_por_periodo(self, fecha_inicio: str, fecha_fin: str):
         """
-        Retorna una lista de diccionarios/modelos Paciente (debe unirse con PacienteDAO si es necesario)
-        que tuvieron al menos un turno en estado 'atendido' en el periodo dado.
+        Retorna los pacientes con al menos un turno en estado 'atendido'
+        dentro del periodo especificado, ordenados alfabéticamente.
         """
-        # Utiliza un JOIN para obtener los datos completos del paciente
-        # y DISTINCT para asegurar que cada paciente aparezca solo una vez.
+        fecha_inicio_str = self._fmt_date(fecha_inicio)
+        fecha_fin_str = self._fmt_date(fecha_fin)
+
         try:
             self.cur.execute(
                 """
@@ -205,30 +214,54 @@ class TurnoDAO(BaseDAO):
                 FROM Turno t
                 JOIN Paciente p ON t.dni_paciente = p.dni
                 WHERE t.estado = 'atendido'
-                AND p.activo = 1
-                AND t.fecha BETWEEN ? AND ?
+                  AND p.activo = 1
+                  AND date(t.fecha_hora_inicio) BETWEEN ? AND ?
+                ORDER BY p.apellido ASC, p.nombre ASC
                 """,
-                (fecha_inicio, fecha_fin)
+                (fecha_inicio_str, fecha_fin_str)
             )
             rows = self.cur.fetchall()
-            
-            from modelos.paciente import Paciente # Necesitas importar el modelo Paciente
-            
-            # Mapeo a objetos Paciente
-            return [
-                Paciente(
-                    dni=row["dni"],
-                    nombre=row["nombre"],
-                    apellido=row["apellido"],
-                    fecha_nacimiento=row["fecha_nacimiento"],
-                    email=row["email"],
-                    direccion=row["direccion"],
-                    activo=row["activo"]
-                ) for row in rows
-            ]
+
+            from modelos.paciente import Paciente
+            pacientes = []
+            for row in rows:
+                fecha_nacimiento = row["fecha_nacimiento"]
+                if isinstance(fecha_nacimiento, str):
+                    fecha_nacimiento = datetime.strptime(fecha_nacimiento, '%Y-%m-%d').date()
+                pacientes.append(
+                    Paciente(
+                        dni=row["dni"],
+                        nombre=row["nombre"],
+                        apellido=row["apellido"],
+                        fecha_nacimiento=fecha_nacimiento,
+                        email=row["email"],
+                        direccion=row["direccion"],
+                        activo=row["activo"]
+                    )
+                )
+            return pacientes
         except Exception as e:
-            # Re-lanzar como error de persistencia
             raise DatabaseError(f"Error de base de datos al obtener pacientes atendidos: {e}")
-    
-    def cantidad_turnos_atendido():
-        pass
+
+    def contar_turnos_por_estado(self, fecha_inicio=None, fecha_fin=None):
+        """
+        Retorna un diccionario con la cantidad de turnos agrupados por estado.
+        Si se proporcionan fechas, se filtra por el rango indicado.
+        """
+        condiciones = []
+        params = []
+        if fecha_inicio:
+            condiciones.append("date(fecha_hora_inicio) >= ?")
+            params.append(self._fmt_date(fecha_inicio))
+        if fecha_fin:
+            condiciones.append("date(fecha_hora_inicio) <= ?")
+            params.append(self._fmt_date(fecha_fin))
+
+        query = "SELECT estado, COUNT(*) AS cantidad FROM Turno"
+        if condiciones:
+            query += " WHERE " + " AND ".join(condiciones)
+        query += " GROUP BY estado"
+
+        self.cur.execute(query, tuple(params))
+        rows = self.cur.fetchall()
+        return {row["estado"]: row["cantidad"] for row in rows}

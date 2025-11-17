@@ -384,6 +384,16 @@ class TurnoService:
             print(f"[ERROR DB] Fallo al obtener turnos por medico y periodo: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos medico y periodo.")
 
+    def obtener_resumen_asistencias(self, fecha_inicio=None, fecha_fin=None):
+        """
+        Retorna el conteo de turnos agrupados por estado dentro de un periodo opcional.
+        """
+        try:
+            return self.turno_dao.contar_turnos_por_estado(fecha_inicio, fecha_fin)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener resumen de asistencias: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar el resumen de asistencias.")
+
     def obtener_cantidad_turnos_por_estado_y_especialidad(self, id_especialidad):
         """
         Obtiene la cantidad de turnos por estado para una especialidad médica específica.
