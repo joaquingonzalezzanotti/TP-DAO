@@ -87,7 +87,7 @@ class TurnoDAO(BaseDAO):
         cantidad = self.cursor.fetchone()[0]
         return cantidad > 0
     
-    def obtener_turnos_por_medico_y_fecha(self, nro_matricula_medico, fecha):
+    def obtener_turnos_disponibles_por_medico_y_fecha(self, nro_matricula_medico, fecha):
         # Convertir siempre el date → 'YYYY-MM-DD'
         try:
             fecha_str = self._fmt_date(fecha)
@@ -119,7 +119,7 @@ class TurnoDAO(BaseDAO):
         rows = self.cur.fetchall()
         return [Turno(**row) for row in rows]
     
-    def obtener_turnos_por_especialidad_y_fecha(self, id_especialidad, fecha):
+    def obtener_turnos_disponibles_por_especialidad_y_fecha(self, id_especialidad, fecha):
         """
         Retorna una lista de turnos disponibles para una especialidad en una fecha específica.
         """
@@ -139,7 +139,7 @@ class TurnoDAO(BaseDAO):
         rows = self.cur.fetchall()
         return [Turno(**row) for row in rows]
     
-    def obtener_turnos_por_especialidad_y_mes(self, id_especialidad, mes_actual, anio_actual):
+    def obtener_turnos_disponibles_por_especialidad_y_mes(self, id_especialidad, mes_actual, anio_actual):
         """
         Retorna una lista de turnos disponibles para una especialidad en un mes y año específicos.
         """
@@ -157,3 +157,78 @@ class TurnoDAO(BaseDAO):
         )
         rows = self.cur.fetchall()
         return [Turno(**row) for row in rows]
+    
+    def obtener_turnos_por_medico_en_un_periodo(self, nro_matricula_medico, fecha_inicio, fecha_fin):
+        """
+        Retorna una lista de turnos para un médico específico dentro de un período determinado.
+        """
+        fecha_inicio_str = self._fmt_date(fecha_inicio)
+        fecha_fin_str = self._fmt_date(fecha_fin)
+
+        self.cur.execute(
+            """SELECT * FROM Turno
+               WHERE nro_matricula_medico=?
+                 AND date(fecha_hora_inicio) BETWEEN ? AND ?""",
+            (nro_matricula_medico, fecha_inicio_str, fecha_fin_str)
+        )
+        rows = self.cur.fetchall()
+        return [Turno(**row) for row in rows]
+    
+    def obtener_cantidad_turnos_por_estado_y_especialidad(self, id_especialidad):
+        """
+        Retorna un diccionario con la cantidad de turnos por estado para una especialidad médica específica.
+        """
+        self.cur.execute(
+            """SELECT t.estado, COUNT(*) as cantidad
+               FROM Turno t
+               JOIN Medico m ON t.nro_matricula_medico = m.nro_matricula
+               WHERE m.id_especialidad=?
+               AND m.activo = 1
+               GROUP BY t.estado""",
+            (id_especialidad,)
+        )
+        rows = self.cur.fetchall()
+        return {row["estado"]: row["cantidad"] for row in rows}
+    
+    def obtener_pacientes_atendidos_por_periodo(self, fecha_inicio: str, fecha_fin: str):
+        """
+        Retorna una lista de diccionarios/modelos Paciente (debe unirse con PacienteDAO si es necesario)
+        que tuvieron al menos un turno en estado 'atendido' en el periodo dado.
+        """
+        # Utiliza un JOIN para obtener los datos completos del paciente
+        # y DISTINCT para asegurar que cada paciente aparezca solo una vez.
+        try:
+            self.cur.execute(
+                """
+                SELECT DISTINCT
+                    p.dni, p.nombre, p.apellido, p.fecha_nacimiento, p.email, p.direccion, p.activo
+                FROM Turno t
+                JOIN Paciente p ON t.dni_paciente = p.dni
+                WHERE t.estado = 'atendido'
+                AND p.activo = 1
+                AND t.fecha BETWEEN ? AND ?
+                """,
+                (fecha_inicio, fecha_fin)
+            )
+            rows = self.cur.fetchall()
+            
+            from modelos.paciente import Paciente # Necesitas importar el modelo Paciente
+            
+            # Mapeo a objetos Paciente
+            return [
+                Paciente(
+                    dni=row["dni"],
+                    nombre=row["nombre"],
+                    apellido=row["apellido"],
+                    fecha_nacimiento=row["fecha_nacimiento"],
+                    email=row["email"],
+                    direccion=row["direccion"],
+                    activo=row["activo"]
+                ) for row in rows
+            ]
+        except Exception as e:
+            # Re-lanzar como error de persistencia
+            raise DatabaseError(f"Error de base de datos al obtener pacientes atendidos: {e}")
+    
+    def cantidad_turnos_atendido():
+        pass

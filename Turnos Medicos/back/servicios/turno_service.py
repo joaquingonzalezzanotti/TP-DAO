@@ -4,6 +4,7 @@ from persistencia.dao.medico_dao import MedicoDAO
 from persistencia.dao.especialidad_dao import EspecialidadDAO
 from persistencia.persistencia_errores import IntegridadError, DatabaseError, NotFoundError
 from modelos.turno import Turno
+from especialidad_service import EspecialidadService
 from datetime import datetime, date, timedelta
 class TurnoService:
     """
@@ -16,6 +17,7 @@ class TurnoService:
         self.paciente_dao = PacienteDAO()
         self.medico_dao = MedicoDAO()
         self.especialidad_dao = EspecialidadDAO()
+        self.especialidad_service = EspecialidadService()
 
     
     def programar_turno(self, id_turno, dni_paciente, motivo, observaciones=None):
@@ -88,7 +90,7 @@ class TurnoService:
         if turno.fecha_hora_inicio < datetime.now():
             raise ValueError(f"El turno con ID {id_turno} es pasado ({turno.fecha_hora_inicio}) y no puede ser cancelado.")
 
-        if turno.estado not in ['programado', 'reprogramado']:
+        if turno.estado not in ['programado']:
             raise ValueError(f"El turno {id_turno} no puede ser cancelado. Estado actual: {turno.estado}.")
 
         # Modificar el turno original (estado: cancelado)
@@ -225,7 +227,7 @@ class TurnoService:
         except RuntimeError as re:
             raise
 
-    def obtener_turnos_disponibles_para_medico_fecha(self, nro_matricula_medico, fecha):
+    def obtener_turnos_disponibles_por_medico_y_fecha(self, nro_matricula_medico, fecha):
         """
         Obtiene los turnos disponibles para un médico en una fecha específica.
         """
@@ -251,12 +253,12 @@ class TurnoService:
             raise ValueError("La fecha no puede ser anterior a hoy")
 
         try:
-            return self.turno_dao.obtener_turnos_por_especialidad_y_fecha(nro_matricula_medico, fecha)
+            return self.turno_dao.obtener_turnos_disponibles_por_medico_y_fecha(nro_matricula_medico, fecha)
         except Exception as e:
             print(f"[ERROR DB] Fallo al obtener turnos disponibles por médico/fecha: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos disponibles.")
     
-    def obtener_turnos_disponibles_para_medico_mes(self, nro_matricula_medico):
+    def obtener_turnos_disponibles_por_medico_y_mes(self, nro_matricula_medico):
         """
         Obtiene los turnos disponibles para un médico en el mes actual.
         """
@@ -278,9 +280,9 @@ class TurnoService:
             print(f"[ERROR DB] Fallo al obtener turnos disponibles por médico/mes: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos disponibles.")
     
-    def obtener_turnos_por_especialidad_y_fecha(self, especialidad, fecha):
+    def obtener_turnos_disponibles_por_especialidad_y_fecha(self, especialidad, fecha):
         """
-        Obtiene los turnos disponibles para una especialidad en una fecha específica.
+        Obtiene los turnos disponibles para el nombre de una especialidad en una fecha específica.
         """
         try:
             especialidad_obj = self.especialidad_dao.obtener_por_nombre(especialidad)
@@ -306,14 +308,14 @@ class TurnoService:
             raise ValueError("La fecha no puede ser anterior a hoy")
 
         try:
-            return self.turno_dao.obtener_turnos_por_especialidad_y_fecha(id_especialidad, fecha)
+            return self.turno_dao.obtener_turnos_disponibles_por_especialidad_y_fecha(id_especialidad, fecha)
         except Exception as e:
             print(f"[ERROR DB] Fallo al obtener turnos por especialidad/fecha: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos por especialidad.")
         
-    def obtener_turnos_por_especialidad_y_mes(self, especialidad):
+    def obtener_turnos_disponibles_por_especialidad_y_mes(self, especialidad):
         """
-        Obtiene los turnos disponibles para una especialidad en el mes actual.
+        Obtiene los turnos disponibles para una el nombre de especialidad en el mes actual.
         """
         try:
             especialidad_obj = self.especialidad_dao.obtener_por_nombre(especialidad)
@@ -330,31 +332,156 @@ class TurnoService:
         anio_actual = hoy.year
 
         try:
-            return self.turno_dao.obtener_turnos_por_especialidad_y_mes(id_especialidad, mes_actual, anio_actual)
+            return self.turno_dao.obtener_turnos_disponibles_por_especialidad_y_mes(id_especialidad, mes_actual, anio_actual)
         except Exception as e:
             print(f"[ERROR DB] Fallo al obtener turnos por especialidad/mes: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos por especialidad.")
+
+    def obtener_turnos_por_medico_en_un_periodo(self, nro_matricula_medico, fecha_inicio, fecha_fin):
+        """Obtiene listado de turnos para un médico específico dentro de un período determinado."""
+
+        # Verificar que el médico existe y está activo
+        try:
+            medico = self.medico_dao.obtener_por_id(nro_matricula_medico)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al verificar el médico {nro_matricula_medico}: {e}")
         
-    ################# VER SI ESTA BIEN IMPLEMENTADO Y SI VAN ############################
-    def obtener_turnos_por_dni_paciente(self, dni_paciente):
-        # Lo hizo la IA, no lo controle, ni esta implementado en el DAO
+        if not medico or medico.activo == 0:
+            raise ValueError(f"No existe un médico activo con matrícula {nro_matricula_medico}.")        
+        
+        # Validar el rango de fechas
+        if isinstance(fecha_inicio, str):
+            try:
+                fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha_inicio, (datetime, date)):
+            fecha_inicio = fecha_inicio.date() if isinstance(fecha_inicio, datetime) else fecha_inicio
+        else:
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")    
+        
+
+        if isinstance(fecha_fin, str):
+            try:
+                fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha_fin, (datetime, date)):
+            fecha_fin = fecha_fin.date() if isinstance(fecha_fin, datetime) else fecha_fin
+        else:
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+
+        if fecha_inicio > fecha_fin:
+            raise ValueError("La fecha de inicio no puede ser posterior a la fecha de fin.")
+        
+        if (fecha_fin - fecha_inicio).days > 30:
+            raise ValueError("El período entre las fechas no puede ser mayor a 30 días.")
+        
+        # Obtener los turnos del médico en el período especificado
+        try:
+            return self.turno_dao.obtener_turnos_por_medico_en_un_periodo(nro_matricula_medico, fecha_inicio, fecha_fin)
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos por medico y periodo: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos medico y periodo.")
+
+    def obtener_cantidad_turnos_por_estado_y_especialidad(self, id_especialidad):
         """
-        Obtiene todos los turnos asociados a un paciente por su DNI.
+        Obtiene la cantidad de turnos por estado para una especialidad médica específica.
+        Retorna un diccionario con estados como claves y cantidades como valores.
         """
         try:
-            paciente = self.paciente_dao.obtener_por_id(dni_paciente)
+            especialidad = self.especialidad_dao.obtener_por_id(id_especialidad)
         except Exception as e:
-            raise RuntimeError(f"Fallo técnico al consultar el paciente {dni_paciente}: {e}")
+            raise RuntimeError(f"Fallo técnico al consultar la especialidad {id_especialidad}: {e}")
         
-        if not paciente or paciente.activo == 0:
-            raise ValueError(f"No existe un paciente activo con DNI {dni_paciente}.")
+        if not especialidad or especialidad.activo == 0:
+            raise ValueError(f"No existe una especialidad activa con ID {id_especialidad}.")
 
         try:
-            return self.turno_dao.obtener_turnos_por_dni_paciente(dni_paciente)
+            return self.turno_dao.obtener_cantidad_turnos_por_estado_y_especialidad(id_especialidad)
         except Exception as e:
-            print(f"[ERROR DB] Fallo al obtener turnos por DNI de paciente: {e}")
-            raise RuntimeError("Ocurrió un error técnico al consultar los turnos del paciente.")
+            print(f"[ERROR DB] Fallo al obtener cantidad de turnos por estado y especialidad: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar la cantidad de turnos por estado y especialidad.")
+
+    def obtener_cantidad_turnos_por_especialidades_y_estado(self):
+        """Retorna un diccionario anidado con la cantidad de turnos por especialidad y estado. {especialidad: {estado: cantidad}}"""
+        try:
+            especialidades = self.especialidad_service.obtener_especialidades()
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar las especialidades: {e}")
         
+        if especialidades is None or len(especialidades) == 0:
+            raise ValueError("No existen especialidades registradas en el sistema.")
+
+        resultado = {}
+        for especialidad in especialidades:
+            try:
+                cantidades = self.obtener_cantidad_turnos_por_estado_y_especialidad(especialidad.id_especialidad)
+                resultado[especialidad.nombre] = cantidades
+            except Exception as e:
+                print(f"[ERROR] Fallo al obtener cantidades para especialidad {especialidad.nombre}: {e}")
+                resultado[especialidad.nombre] = {}
+        return resultado
+
+    def obtener_pacientes_atendidos_por_periodo(self, fecha_inicio, fecha_fin):
+        """
+        Obtiene la lista de objetos Paciente que fueron atendidos 
+        (turno en estado 'atendido') dentro del rango de fechas.
+        
+        Retorna: lista de objetos Paciente.
+        """
+        # 1. Validación de fechas (formato y lógica)
+        try:
+            # Validar el rango de fechas
+            if isinstance(fecha_inicio, str):
+                try:
+                    fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+                except ValueError:
+                    raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+            if isinstance(fecha_inicio, (datetime, date)):
+                fecha_inicio = fecha_inicio.date() if isinstance(fecha_inicio, datetime) else fecha_inicio
+            else:
+                raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")    
+            
+
+            if isinstance(fecha_fin, str):
+                try:
+                    fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+                except ValueError:
+                    raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+            if isinstance(fecha_fin, (datetime, date)):
+                fecha_fin = fecha_fin.date() if isinstance(fecha_fin, datetime) else fecha_fin
+            else:
+                raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+
+            if fecha_inicio > fecha_fin:
+                raise ValueError("La fecha de inicio no puede ser posterior a la fecha de fin.")
+            
+            if (fecha_fin - fecha_inicio).days > 30:
+                raise ValueError("El período entre las fechas no puede ser mayor a 30 días.")
+            
+            
+        except ValueError as e:
+            # Captura errores de formato o lógica de fechas
+            print(f"[ERROR VALIDACIÓN] Error en el formato o lógica de fechas: {e}")
+            raise ValueError("Formato de fecha inválido (use YYYY-MM-DD) o rango incorrecto.")
+        
+        # 2. Llamada al DAO
+        try:
+            # La llamada al DAO usa las fechas validadas
+            pacientes = self.turno_dao.obtener_pacientes_atendidos_por_periodo(fecha_inicio, fecha_fin)
+            return pacientes
+            
+        except DatabaseError as e:
+            print(f"[ERROR DB] Fallo al obtener pacientes atendidos: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar la base de datos.")
+        except Exception as e:
+            print(f"[ERROR RUNTIME] Error inesperado en TurnoService: {e}")
+            raise RuntimeError("Ocurrió un error interno del sistema.")
+
+
+
+    ################# VER SI ESTA BIEN IMPLEMENTADO Y SI VAN ############################
     def procesar_ausentes_dia_anterior(self):
         #Ya seria mucho implementar esto? 
         """
@@ -372,3 +499,29 @@ class TurnoService:
         except DatabaseError as e:
             print(f"[ERROR DB AUTOMÁTICO] Fallo al procesar ausentes de ayer: {e}")
             raise RuntimeError("Fallo en el proceso automático de marcado de ausentes.")
+        
+    def obtener_todos_los_turnos(self):
+        """
+        Obtiene todos los turnos registrados en el sistema.
+        """
+        try:
+            return self.turno_dao.obtener_todos()
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener todos los turnos: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar todos los turnos.")
+    
+    def obtener_turno_por_id(self, id_turno):
+        """
+        Obtiene un turno por su ID.
+        """
+        try:
+            turno = self.turno_dao.obtener_por_id(id_turno)
+            if not turno:
+                raise NotFoundError(f"No existe un turno con ID {id_turno}.")
+            return turno
+        except NotFoundError as nfe:
+            raise nfe
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener el turno {id_turno}: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar el turno.")                                           
+    

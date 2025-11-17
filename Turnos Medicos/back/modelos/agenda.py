@@ -25,7 +25,7 @@ class Agenda:
             raise ValueError("La matrícula del médico debe ser numérica.")
         if not (1 <= self.mes <= 12):
             raise ValueError("El mes debe estar entre 1 y 12.")
-        if self.duracion_minutos <= 0 and self.duracion_minutos > 480:
+        if not (0 < self.duracion_minutos <= 480):
             raise ValueError("La duración del turno debe ser positiva y maximo 480.")
         if not isinstance(self.duracion_minutos, int):
             raise ValueError("La duración del turno debe ser un número entero de minutos.")
@@ -37,13 +37,20 @@ class Agenda:
         dias_ingresados = [d.strip() for d in self.dias_semana.split(",") if d.strip()]
         if not dias_ingresados:
             raise ValueError("Debe especificar al menos un día válido.")
-            
+        
+        # Validar cada día individualmente
+        dias_validos_finales = []
         for dia in dias_ingresados:
             if dia not in self.DIAS_VALIDOS_ES:
                 raise ValueError(f"Día de la semana '{dia}' inválido. Días permitidos: {', '.join(self.DIAS_VALIDOS_ES)}")
+            dias_validos_finales.append(dia)
+
+        # *** NORMALIZACIÓN DEL ATRIBUTO INTERNO ***
+        # Reasignamos self.dias_semana con la cadena limpia y estandarizada (sin espacios)
+        #    Ej: ["lunes", "martes", "miércoles"] -> "lunes,martes,miércoles"
+        self.dias_semana = ",".join(dias_validos_finales)
 
         # Validaciones y Estandarización de Horas (hora_inicio, hora_fin)
-        
         hora_inicio_obj = self._validar_y_convertir_hora(self.hora_inicio, "inicio")
         hora_fin_obj = self._validar_y_convertir_hora(self.hora_fin, "fin")
 

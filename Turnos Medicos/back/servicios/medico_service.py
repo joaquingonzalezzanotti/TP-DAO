@@ -30,12 +30,12 @@ class MedicoService:
             except Exception as e:
                 raise RuntimeError(f"Fallo técnico al verificar especialidad: {e}")
 
-            if especialidad is None:
-                raise ValueError(f"La especialidad con ID {id_especialidad} no existe.")
+            if especialidad is None or especialidad.activo == 0:
+                raise ValueError(f"La especialidad con ID {id_especialidad} no existe o esta dada de baja.")
 
             # Manejo de error técnico en la consulta de existencia
             try:
-                existente = self.medico_dao.obtener_por_matricula(nro_matricula)
+                existente = self.medico_dao.obtener_por_id(nro_matricula)
             except Exception as e:
                 raise RuntimeError(f"Fallo técnico al verificar médico existente: {e}")
                 
@@ -111,7 +111,8 @@ class MedicoService:
             lista de Medico
         """
         try:
-            if not self.especialidad_dao.obtener_por_id(id_especialidad):
+            especialidad = self.especialidad_dao.obtener_por_id(id_especialidad)
+            if not especialidad or especialidad.activo == 0:
                 raise ValueError(f"La especialidad con ID {id_especialidad} no existe.")
             return self.medico_dao.obtener_por_especialidad(id_especialidad)
         except Exception as e:
@@ -145,8 +146,8 @@ class MedicoService:
         except Exception as e:
             raise RuntimeError(f"Fallo técnico al consultar médico para actualizar: {e}")
 
-        if not medico:
-            raise ValueError(f"No existe un médico con matrícula {nro_matricula}.")
+        if not medico or medico.activo == 0:
+            raise ValueError(f"No existe un médico activo con matrícula {nro_matricula}.")
 
         # Actualizar solo los campos proporcionados
         if nombre is not None:
@@ -162,8 +163,8 @@ class MedicoService:
             except Exception as e:
                 raise RuntimeError(f"Fallo técnico al verificar nueva especialidad: {e}")
                 
-            if especialidad is None:
-                raise ValueError(f"La especialidad con ID {id_especialidad} no existe.")
+            if especialidad is None or especialidad.activo == 0:
+                raise ValueError(f"La especialidad con ID {id_especialidad} no existe o no esta activa.")
             medico.id_especialidad = id_especialidad
 
         try:
@@ -254,8 +255,9 @@ class MedicoService:
 
             # Validar existencia del médico (Manejo de error de obtención)
             try:
-                if not self.medico_dao.obtener_por_id(nro_matricula_medico):
-                    raise ValueError(f"No existe un médico con matrícula {nro_matricula_medico}.")
+                medico = self.medico_dao.obtener_por_id(nro_matricula_medico)
+                if not medico or medico.activo == 0:
+                    raise ValueError(f"No existe un médico activo con matrícula {nro_matricula_medico}.")
             except Exception as e:
                 raise RuntimeError(f"Fallo técnico al verificar existencia del médico: {e}")
 
