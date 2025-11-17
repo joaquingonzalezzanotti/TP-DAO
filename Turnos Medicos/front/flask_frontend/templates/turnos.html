@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Generar Turnos Mensuales</h2>
+<form method="post" class="row g-3">
+    <div class="col-md-4">
+        <label class="form-label">Médico</label>
+        <select name="medico" class="form-select" required>
+            {% for m in medicos %}
+            <option value="{{ m.nro_matricula }}">{{ m.nro_matricula }} - {{ m.apellido }}, {{ m.nombre }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Mes</label>
+        <input name="mes" class="form-control" placeholder="1-12" required>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label">Año</label>
+        <input name="anio" class="form-control" placeholder="2026" required>
+    </div>
+    <div class="col-md-4 align-self-end">
+        <button class="btn btn-primary">Generar</button>
+    </div>
+</form>
+
+{% if created is not none %}
+<div class="mt-4 alert alert-info">Se generaron {{ created }} turnos.</div>
+{% endif %}
+{% endblock %}
