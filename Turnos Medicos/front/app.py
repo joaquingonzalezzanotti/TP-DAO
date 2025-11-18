@@ -109,7 +109,7 @@ class App(tk.Tk):
 
         # Pestaña Reportes
         frame_reportes = ttk.Frame(nb)
-        nb.add(frame_reportes, text='Reportes')
+        nb.add(frame_reportes, text='Funcionalidades')
         self._build_reportes_tab(frame_reportes)
 
     # ---------- Turnos Tab ----------
@@ -1510,17 +1510,40 @@ class App(tk.Tk):
     # ---------- Reportes Tab ----------
     def _build_reportes_tab(self, parent):
         pad = {'padx': 8, 'pady': 8}
-        top = ttk.Frame(parent)
-        top.pack(fill='x', **pad)
+        container = ttk.Frame(parent)
+        container.pack(fill='x', **pad)
 
-        ttk.Label(top, text='Generar reportes desde el sistema').grid(row=0, column=0, sticky='w')
-        btn = ttk.Button(top, text='Generar reportes', command=self._on_generar_reportes)
-        btn.grid(row=0, column=1, sticky='w', padx=10)
+        left = ttk.LabelFrame(container, text='Reportes disponibles')
+        left.pack(side='left', fill='both', expand=True, padx=(0, 12))
 
-        self.reportes_log = tk.Text(parent, height=20)
-        self.reportes_log.pack(fill='both', expand=True, padx=8, pady=8)
+        ttk.Label(left, text='Cada reporte contará con su botón de generación.').pack(anchor='w', padx=8, pady=(8, 12))
+        reportes = [
+            'Turnos por médico en período',
+            'Cantidad por especialidad',
+            'Pacientes atendidos en período',
+            'Asistencias vs inasistencias'
+        ]
+        self.report_buttons = [
+            ('Turnos por médico en período', self._open_report_turnos_medico),
+            ('Cantidad por especialidad', self._open_report_cantidad_especialidad),
+            ('Pacientes atendidos en período', self._open_report_pacientes_periodo),
+            ('Asistencias vs inasistencias', self._open_report_asistencias_vs_inasistencias)
+        ]
+        for texto, handler in self.report_buttons:
+            ttk.Button(left, text=texto, command=handler).pack(fill='x', padx=8, pady=4)
+
+        right = ttk.LabelFrame(container, text='Generación de emails')
+        right.pack(side='left', fill='both', expand=True)
+        ttk.Label(right, text='Enviar mail recordatorio turnos mañana').pack(anchor='w', padx=8, pady=(8, 4))
+        ttk.Button(right, text='Enviar', state='disabled').pack(anchor='w', padx=8, pady=4)
+
+        self.reportes_log = tk.Text(parent, height=12)
+        self.reportes_log.pack(fill='both', expand=True, padx=8, pady=(0, 8))
 
     def _on_generar_reportes(self):
+        self._open_report_dialog()
+
+    def _open_report_dialog(self, default_type=None):
         if self.reporte_service is None:
             messagebox.showerror('Error', 'Servicio de reportes no disponible')
             return
@@ -1531,14 +1554,18 @@ class App(tk.Tk):
         dlg.geometry('480x220')
 
         ttk.Label(dlg, text='Tipo de reporte:').pack(anchor='w', padx=8, pady=(8,0))
-        combo = ttk.Combobox(dlg, state='readonly', values=[
+        opciones = [
             'Turnos por médico en período',
             'Cantidad por especialidad',
             'Pacientes atendidos en período',
             'Asistencias vs inasistencias'
-        ])
+        ]
+        combo = ttk.Combobox(dlg, state='readonly', values=opciones)
         combo.pack(fill='x', padx=8)
-        combo.current(0)
+        if default_type and default_type in opciones:
+            combo.set(default_type)
+        else:
+            combo.current(0)
 
         frm_inputs = ttk.Frame(dlg)
         frm_inputs.pack(fill='x', padx=8, pady=8)
@@ -1608,6 +1635,18 @@ class App(tk.Tk):
         btn_exec.pack(side='right', padx=12, pady=12)
         btn_close = ttk.Button(dlg, text='Cancelar', command=dlg.destroy)
         btn_close.pack(side='right', padx=6, pady=12)
+
+    def _open_report_turnos_medico(self):
+        self._open_report_dialog('Turnos por médico en período')
+
+    def _open_report_cantidad_especialidad(self):
+        self._open_report_dialog('Cantidad por especialidad')
+
+    def _open_report_pacientes_periodo(self):
+        self._open_report_dialog('Pacientes atendidos en período')
+
+    def _open_report_asistencias_vs_inasistencias(self):
+        self._open_report_dialog('Asistencias vs inasistencias')
 
 
 if __name__ == '__main__':
