@@ -755,8 +755,8 @@ class App(tk.Tk):
         self.combo_entidad.current(0)
         self.combo_entidad.bind('<<ComboboxSelected>>', lambda e: self._refresh_abc())
 
-        # Treeview
-        cols = ('pk', 'col1', 'col2', 'col3')
+        # Treeview (definimos hasta 6 columnas; cada entidad usará las que necesite)
+        cols = ('pk', 'col1', 'col2', 'col3', 'col4', 'col5')
         self.tree_abc = ttk.Treeview(left, columns=cols, show='headings')
         for c in cols:
             self.tree_abc.heading(c, text=c.upper())
@@ -782,18 +782,27 @@ class App(tk.Tk):
     def _refresh_abc(self):
         entidad = self.combo_entidad.get()
 
-        # Actualizar encabezados según la entidad seleccionada
+        # Actualizar encabezados según la entidad seleccionada.
+        # Pacientes: agregar "Fecha de nacimiento" y "Dirección" (total 6 columnas).
+        # Médicos: mostrar 4 columnas: Matrícula, Nombre, Apellido, Especialidad (omitimos email aquí).
+        # Especialidades: mostrar 3 columnas: ID, Nombre, Descripción (eliminamos la columna vacía intermedia).
         headers_map = {
-            'Pacientes': ('DNI', 'Nombre', 'Apellido', 'Email'),
-            'Médicos': ('Matrícula', 'Nombre', 'Apellido', 'Email'),
-            'Especialidades': ('ID', 'Nombre', '-', 'Descripción')
+            'Pacientes': ('DNI', 'Nombre', 'Apellido', 'Email', 'Fecha de nacimiento', 'Dirección'),
+            'Médicos': ('Matrícula', 'Nombre', 'Apellido', 'Especialidad'),
+            'Especialidades': ('ID', 'Nombre', 'Descripción')
         }
         labels = headers_map.get(entidad, ('PK', 'COL1', 'COL2', 'COL3'))
-        cols = ('pk', 'col1', 'col2', 'col3')
+        cols = ('pk', 'col1', 'col2', 'col3', 'col4', 'col5')
+        # Usar la lista completa de columnas y asignar encabezados solo a las posiciones necesarias
         for col, lab in zip(cols, labels):
             self.tree_abc.heading(col, text=lab)
-            # ajustar ancho si el label está vacío o corto
-            self.tree_abc.column(col, width=140 if lab else 80)
+            # ajustar ancho según el label
+            self.tree_abc.column(col, width=160 if lab else 80)
+        # Para columnas no usadas por la entidad, asegurarse que su encabezado quede vacío
+        remaining = cols[len(labels):]
+        for col in remaining:
+            self.tree_abc.heading(col, text='')
+            self.tree_abc.column(col, width=80)
 
         for i in self.tree_abc.get_children():
             self.tree_abc.delete(i)
@@ -804,19 +813,32 @@ class App(tk.Tk):
                     raise RuntimeError('DAO Paciente no disponible')
                 items = self.paciente_dao.obtener_todos()
                 for p in items:
-                    self.tree_abc.insert('', 'end', values=(p.dni, p.nombre, p.apellido, p.email))
+                    fecha = getattr(p, 'fecha_nacimiento', '')
+                    direccion = getattr(p, 'direccion', '')
+                    # Insertar 6 valores (completando con '' si alguna propiedad falta)
+                    self.tree_abc.insert('', 'end', values=(p.dni, p.nombre, p.apellido, getattr(p, 'email', ''), fecha or '', direccion or ''))
             elif entidad == 'Médicos':
                 if self.medico_dao is None:
                     raise RuntimeError('DAO Medico no disponible')
                 items = self.medico_dao.obtener_todos()
                 for m in items:
-                    self.tree_abc.insert('', 'end', values=(m.nro_matricula, m.nombre, m.apellido, m.email))
+                    esp = ''
+                    try:
+                        if self.especialidad_dao is not None and getattr(m, 'id_especialidad', None) is not None:
+                            e = self.especialidad_dao.obtener_por_id(m.id_especialidad)
+                            if e:
+                                esp = getattr(e, 'nombre', '')
+                    except Exception:
+                        esp = ''
+                    # Insertar solo las 4 columnas configuradas para médicos (las columnas adicionales quedan vacías)
+                    self.tree_abc.insert('', 'end', values=(m.nro_matricula, m.nombre, m.apellido, esp or '', '', ''))
             elif entidad == 'Especialidades':
                 if self.especialidad_dao is None:
                     raise RuntimeError('DAO Especialidad no disponible')
                 items = self.especialidad_dao.obtener_todos()
                 for s in items:
-                    self.tree_abc.insert('', 'end', values=(s.id_especialidad, s.nombre, '', getattr(s, 'descripcion', '')))
+                    # Insertar solo ID, Nombre y Descripción (columnas extra vacías)
+                    self.tree_abc.insert('', 'end', values=(s.id_especialidad, s.nombre, getattr(s, 'descripcion', ''), '', '', ''))
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden listar {entidad}: {e}')
 

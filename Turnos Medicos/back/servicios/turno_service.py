@@ -5,6 +5,7 @@ from persistencia.dao.especialidad_dao import EspecialidadDAO
 from persistencia.persistencia_errores import IntegridadError, DatabaseError, NotFoundError
 from modelos.turno import Turno
 from especialidad_service import EspecialidadService
+from mail_service import MailService
 from datetime import datetime, date, timedelta
 class TurnoService:
     """
@@ -59,6 +60,22 @@ class TurnoService:
             actualizado = self.turno_dao.actualizar(turno)
             if actualizado:
                 print(f"[OK] Turno {id_turno} asignado correctamente.")
+
+                # Intentar enviar notificación por mail al paciente. No revertimos la operación
+                # si el envío falla: solo registramos el resultado en consola.
+                try:
+                    email = getattr(paciente, 'email', None)
+                    if email:
+                        enviado = MailService.enviar_turno(email, turno)
+                        if enviado:
+                            print(f"[OK] Notificación por mail enviada a {email} para turno {id_turno}.")
+                        else:
+                            print(f"[WARN] No se pudo enviar la notificación por mail a {email}.")
+                    else:
+                        print(f"[WARN] El paciente {dni_paciente} no tiene email registrado; no se envió notificación.")
+                except Exception as e:
+                    print(f"[ERROR Mail] Ocurrió un error al intentar enviar el mail: {e}")
+
             return actualizado
         
         except IntegridadError as e:
