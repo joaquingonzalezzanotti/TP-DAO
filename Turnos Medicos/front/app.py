@@ -169,6 +169,13 @@ class App(tk.Tk):
 
         btn_programar = ttk.Button(form, text='Asignar turno al paciente', command=self._on_programar_turno)
         btn_programar.grid(row=0, column=4, rowspan=2, padx=10, pady=4, sticky='nsw')
+        # Acciones sobre turnos ya programados
+        btn_cancelar = ttk.Button(form, text='Cancelar turno', command=self._on_cancelar_turno)
+        btn_cancelar.grid(row=0, column=5, rowspan=1, padx=6, pady=4, sticky='nsw')
+        btn_ausente = ttk.Button(form, text='Marcar ausente', command=self._on_marcar_ausente)
+        btn_ausente.grid(row=1, column=5, rowspan=1, padx=6, pady=4, sticky='nsw')
+        btn_atendido = ttk.Button(form, text='Marcar atendido', command=self._on_marcar_atendido)
+        btn_atendido.grid(row=0, column=6, rowspan=2, padx=6, pady=4, sticky='nsw')
 
         form.columnconfigure(3, weight=1)
 
@@ -672,6 +679,121 @@ class App(tk.Tk):
             self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error', str(e))
+    
+    def _on_cancelar_turno(self):
+        if self.turno_service is None:
+            messagebox.showerror('Error', 'Servicio de turnos no disponible')
+            return
+        sel = self.tree_turnos.selection()
+        if not sel:
+            messagebox.showwarning('Atención', 'Seleccione un turno de la tabla')
+            return
+        item = self.tree_turnos.item(sel[0])
+        valores = item.get('values', [])
+        if not valores:
+            messagebox.showerror('Error', 'No se pudo determinar el turno seleccionado')
+            return
+        turno_id = valores[0]
+        estado_actual = str(valores[2]).lower() if len(valores) > 2 and valores[2] else ''
+        if estado_actual != 'programado':
+            messagebox.showerror('Error', 'Solo se pueden cancelar turnos en estado "programado".')
+            return
+        try:
+            turno_id = int(turno_id)
+            nuevo = self.turno_service.cancelar_turno(turno_id)
+            messagebox.showinfo('OK', f'Turno {turno_id} cancelado. Turno disponible creado (ID nuevo: {getattr(nuevo, "id_turno", "n/a")}).')
+            self._load_turnos()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
+
+    def _on_marcar_ausente(self):
+        if self.turno_service is None:
+            messagebox.showerror('Error', 'Servicio de turnos no disponible')
+            return
+        sel = self.tree_turnos.selection()
+        if not sel:
+            messagebox.showwarning('Atención', 'Seleccione un turno de la tabla')
+            return
+        item = self.tree_turnos.item(sel[0])
+        valores = item.get('values', [])
+        if not valores:
+            messagebox.showerror('Error', 'No se pudo determinar el turno seleccionado')
+            return
+        turno_id = valores[0]
+        estado_actual = str(valores[2]).lower() if len(valores) > 2 and valores[2] else ''
+        if estado_actual != 'programado':
+            messagebox.showerror('Error', 'Solo se pueden marcar ausentes turnos en estado "programado".')
+            return
+        try:
+            turno_id = int(turno_id)
+            updated = self.turno_service.marcar_ausente_turno(turno_id)
+            messagebox.showinfo('OK', f'Turno {turno_id} marcado como ausente.')
+            self._load_turnos()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
+
+    def _on_marcar_atendido(self):
+        if self.turno_service is None:
+            messagebox.showerror('Error', 'Servicio de turnos no disponible')
+            return
+        sel = self.tree_turnos.selection()
+        if not sel:
+            messagebox.showwarning('Atención', 'Seleccione un turno de la tabla')
+            return
+        item = self.tree_turnos.item(sel[0])
+        valores = item.get('values', [])
+        if not valores:
+            messagebox.showerror('Error', 'No se pudo determinar el turno seleccionado')
+            return
+        turno_id = valores[0]
+        estado_actual = str(valores[2]).lower() if len(valores) > 2 and valores[2] else ''
+        if estado_actual != 'programado':
+            messagebox.showerror('Error', 'Solo se pueden marcar atendido los turnos en estado "programado".')
+            return
+        try:
+            turno_id = int(turno_id)
+            updated = self.turno_service.marcar_atendido_turno(turno_id)
+            messagebox.showinfo('OK', f'Turno {turno_id} marcado como atendido.')
+            self._load_turnos()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
+
+    def _on_crear_agenda_medico(self):
+        # Este método se invoca desde la pestaña ABC cuando se selecciona un médico.
+        entidad = self.combo_entidad.get()
+        if entidad != 'Médicos':
+            messagebox.showwarning('Atención', 'Seleccione la entidad "Médicos" en el panel ABC para crear agenda.')
+            return
+        sel = self.tree_abc.selection()
+        if not sel:
+            messagebox.showwarning('Atención', 'Seleccione un médico en la lista antes de crear la agenda.')
+            return
+        pk = self.tree_abc.item(sel[0])['values'][0]
+        try:
+            nro = int(pk)
+        except Exception:
+            messagebox.showerror('Error', 'Matrícula de médico inválida')
+            return
+        data = self._open_form_dialog('Crear agenda', [('mes', 'Mes (1-12)'), ('anio', 'Año (YYYY)')], {'mes': date.today().month, 'anio': date.today().year})
+        if not data:
+            return
+        mes = data.get('mes')
+        anio = data.get('anio')
+        try:
+            mes_i = int(str(mes).strip())
+            anio_i = int(str(anio).strip())
+        except Exception:
+            messagebox.showerror('Error', 'Mes y año deben ser numéricos')
+            return
+        try:
+            if self.medico_service is None:
+                raise RuntimeError('Servicio de médicos no disponible')
+            creados = self.medico_service.generar_turnos_de_medico(nro, mes_i, anio_i)
+            messagebox.showinfo('OK', f'Se generaron {len(creados)} turnos para el médico {nro} ({mes_i}/{anio_i})')
+            # Si estamos en Turnos, refrescar
+            self._load_turnos()
+        except Exception as e:
+            messagebox.showerror('Error', str(e))
     def _open_form_dialog(self, title, fields, initial=None):
         """
         Reusable modal dialog for data entry.
@@ -768,6 +890,7 @@ class App(tk.Tk):
         ttk.Button(btn_frame, text='Crear', command=self._abc_crear).pack(side='left')
         ttk.Button(btn_frame, text='Editar', command=self._abc_editar).pack(side='left', padx=6)
         ttk.Button(btn_frame, text='Eliminar', command=self._abc_eliminar).pack(side='left')
+        ttk.Button(btn_frame, text='Crear agenda', command=self._on_crear_agenda_medico).pack(side='left', padx=6)
         ttk.Button(btn_frame, text='Refrescar', command=self._refresh_abc).pack(side='left', padx=6)
 
         # Detail panel (right)

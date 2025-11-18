@@ -93,7 +93,10 @@ class TurnoService:
 
     def cancelar_turno(self, id_turno, observaciones=None):
         """
-        Cancela un turno existente y genera un nuevo turno 'disponible' en el mismo slot.
+        Cancela un turno existente.
+        Según la regla de negocio, al cancelar un turno no se debe crear
+        automáticamente un nuevo turno disponible; el registro queda con
+        estado 'cancelado' y no se permite realizar otras operaciones sobre él.
         """
         # Obtener y validar turno
         try:
@@ -109,34 +112,21 @@ class TurnoService:
 
         if turno.estado not in ['programado']:
             raise ValueError(f"El turno {id_turno} no puede ser cancelado. Estado actual: {turno.estado}.")
-
-        # Modificar el turno original (estado: cancelado)
+        # Modificar el turno original (estado: cancelado) y persistir
         turno.estado = 'cancelado'
         turno.motivo = f"Cancelado por el paciente/sistema (Original ID: {id_turno})"
         if observaciones:
             turno.observaciones = observaciones
 
-        # Crear el nuevo turno disponible (replica el slot de tiempo)      
-        nuevo_turno = Turno(
-            fecha_hora_inicio=turno.fecha_hora_inicio,
-            estado='disponible',
-            nro_matricula_medico=turno.nro_matricula_medico,
-            dni_paciente=None 
-        )
-        
-        # Persistir cambios y la creación del nuevo turno (en una sola transacción lógica)
         try:
             turno._validar()
-            self.turno_dao.actualizar(turno)
-            self.turno_dao.crear(nuevo_turno)
-            
-            print(f"[OK] Turno {id_turno} cancelado y turno disponible creado en el mismo slot.")
-            return nuevo_turno
-        
+            actualizado = self.turno_dao.actualizar(turno)
+            print(f"[OK] Turno {id_turno} marcado como 'cancelado'.")
+            return actualizado
+
         except IntegridadError as e:
             print(f"[ERROR INTEGRIDAD] {e}") 
-            # Esto puede ocurrir si el nuevo turno generado viola la FK de Medico
-            raise ValueError("Fallo de integridad al cancelar el turno. Verifique la matrícula del médico.")     
+            raise ValueError("Fallo de integridad al cancelar el turno.")     
         except DatabaseError as e:
             print(f"[ERROR DB] {e}")
             raise RuntimeError("Ocurrió un error técnico en la base de datos durante la cancelación.")
