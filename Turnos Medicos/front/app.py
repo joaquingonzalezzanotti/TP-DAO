@@ -119,6 +119,9 @@ class App(tk.Tk):
         top = ttk.Frame(parent)
         top.pack(fill='x', **pad)
 
+        self._medico_placeholder = 'Seleccione un médico'
+        self._especialidad_placeholder = 'Seleccione una especialidad'
+
         ttk.Label(top, text='Médico:').grid(row=0, column=0, sticky='w')
         self.combo_medicos = ttk.Combobox(top, state='readonly')
         self.combo_medicos.grid(row=0, column=1, sticky='w')
@@ -201,6 +204,8 @@ class App(tk.Tk):
         self._medico_label_cache = {}
         self._load_medicos()
         self._load_especialidades()
+        self._reset_filtro_selection()
+        self._clear_turnos_view()
 
     def _set_registro_visible(self, visible):
         if visible and not self._registro_visible:
@@ -209,6 +214,22 @@ class App(tk.Tk):
         elif not visible and self._registro_visible:
             self.form_registro.pack_forget()
             self._registro_visible = False
+
+    def _reset_filtro_selection(self):
+        if self.combo_medicos['values']:
+            self.combo_medicos.set(self.combo_medicos['values'][0])
+        else:
+            self.combo_medicos.set(self._medico_placeholder)
+        if self.combo_especialidades['values']:
+            self.combo_especialidades.set(self.combo_especialidades['values'][0])
+        else:
+            self.combo_especialidades.set(self._especialidad_placeholder)
+
+    def _clear_turnos_view(self):
+        for item in self.tree_turnos.get_children():
+            self.tree_turnos.delete(item)
+        self.turnos_data = {}
+        self._set_registro_visible(False)
 
     def _build_historial_tab(self, parent):
         pad = {'padx': 8, 'pady': 8}
@@ -267,7 +288,8 @@ class App(tk.Tk):
             if self.medico_service is None:
                 raise RuntimeError('Servicio de médicos no disponible')
             medicos = self.medico_service.obtener_medicos()
-            items = ['Seleccione un médico']
+            placeholder = self._medico_placeholder
+            items = [placeholder]
             anterior = (self.combo_medicos.get() or '').strip()
             self.medicos_index = {}
             for m in medicos:
@@ -278,7 +300,7 @@ class App(tk.Tk):
             if anterior and anterior in items:
                 self.combo_medicos.set(anterior)
             else:
-                self.combo_medicos.set(items[0] if items else '')
+                self.combo_medicos.set(items[0] if items else placeholder)
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden cargar médicos: {e}')
 
@@ -287,7 +309,8 @@ class App(tk.Tk):
             if self.especialidad_dao is None:
                 raise RuntimeError('DAO Especialidad no disponible')
             especialidades = self.especialidad_dao.obtener_todos()
-            items = ['Seleccione una especialidad']
+            placeholder = self._especialidad_placeholder
+            items = [placeholder]
             anterior = (self.combo_especialidades.get() or '').strip()
             self.especialidades_index = {}
             self.especialidades_by_id = {}
@@ -300,18 +323,21 @@ class App(tk.Tk):
             if anterior and anterior in items:
                 self.combo_especialidades.set(anterior)
             else:
-                self.combo_especialidades.set(items[0] if items else '')
+                self.combo_especialidades.set(items[0] if items else placeholder)
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden cargar especialidades: {e}')
 
     def _on_medico_selected(self, _event=None):
         sel = (self.combo_medicos.get() or '').strip()
         if not sel or sel.lower().startswith('seleccione'):
+            self.combo_especialidades.set(self._especialidad_placeholder)
             return
         medico = self.medicos_index.get(sel)
         if not medico:
+            self.combo_especialidades.set(self._especialidad_placeholder)
             return
         esp_id = getattr(medico, 'id_especialidad', None)
+        self.combo_especialidades.set(self._especialidad_placeholder)
         if esp_id and esp_id in self.especialidades_by_id:
             self.combo_especialidades.set(self.especialidades_by_id[esp_id])
 
@@ -328,10 +354,6 @@ class App(tk.Tk):
 
         sel_medico = (self.combo_medicos.get() or '').strip()
         sel_especialidad = (self.combo_especialidades.get() or '').strip()
-        if sel_medico.lower().startswith('seleccione'):
-            sel_medico = ''
-        if sel_especialidad.lower().startswith('seleccione'):
-            sel_especialidad = ''
         if sel_medico.lower().startswith('seleccione'):
             sel_medico = ''
         if sel_especialidad.lower().startswith('seleccione'):

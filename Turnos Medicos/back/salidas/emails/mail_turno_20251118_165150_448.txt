@@ -1,0 +1,10 @@
+To: maurisalum@gmail.com
+Subject: Confirmación de turno #448
+
+Detalle del turno:
+
+ID: 448
+Fecha/Hora: 2025-11-20 10:20:00
+Médico (matrícula): 1002
+Motivo: Prueba
+Observaciones: ...

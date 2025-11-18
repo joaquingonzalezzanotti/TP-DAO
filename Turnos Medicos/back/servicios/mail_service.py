@@ -20,9 +20,10 @@ class MailService:
       Intenta enviar un email con la información del turno. Devuelve True si
       el envío (o simulación) fue exitoso, False en caso contrario.
     """
+    
 
     @staticmethod
-    def enviar_turno(to_email: str, turno) -> bool:
+    def enviar_turno(to_email: str, turno, mail_config: dict = None) -> bool:
         if not to_email:
             print("[MailService] Dirección de mail destino vacía. No se enviará el correo.")
             return False
@@ -30,22 +31,35 @@ class MailService:
         subject = f"Confirmación de turno #{getattr(turno, 'id_turno', '')}"
         fecha = getattr(turno, 'fecha_hora_inicio', '')
         cuerpo = (
+            f"ME IMAGINO LO SORPRENDIDO QUE DEBE ESTAR.... nosotros tambien.\n"
             f"Detalle del turno:\n\n"
             f"ID: {getattr(turno, 'id_turno', '')}\n"
             f"Fecha/Hora: {fecha}\n"
             f"Médico (matrícula): {getattr(turno, 'nro_matricula_medico', '')}\n"
             f"Motivo: {getattr(turno, 'motivo', '')}\n"
             f"Observaciones: {getattr(turno, 'observaciones', '')}\n"
+            f"Atentamente grupo 67"
+            
         )
 
-        smtp_host = os.environ.get('SMTP_HOST')
-        smtp_port = os.environ.get('SMTP_PORT')
-        smtp_user = os.environ.get('SMTP_USER')
-        smtp_pass = os.environ.get('SMTP_PASS')
-        from_email = os.environ.get('FROM_EMAIL', smtp_user)
-        sendgrid_key = os.environ.get('SENDGRID_API_KEY')
+        # Soporte de configuración dinámica: prioridad = mail_config > variables de entorno
+        def _cfg(key, default=None):
+            if mail_config:
+                # aceptar claves en mayúsculas o minúsculas
+                if key in mail_config:
+                    return mail_config.get(key)
+                if key.lower() in mail_config:
+                    return mail_config.get(key.lower())
+            return os.environ.get(key, default)
+
+        smtp_host = _cfg('SMTP_HOST')
+        smtp_port = _cfg('SMTP_PORT')
+        smtp_user = _cfg('SMTP_USER')
+        smtp_pass = _cfg('SMTP_PASS')
+        from_email = _cfg('FROM_EMAIL', smtp_user)
+        sendgrid_key = _cfg('SENDGRID_API_KEY')
         # Opt-in to allow the service to remove sendgrid suppressions automatically (use with caution)
-        allow_unsuppress = os.environ.get('ALLOW_SENDGRID_UNSUPPRESS', 'false').lower() in ('1', 'true', 'yes')
+        allow_unsuppress = str(_cfg('ALLOW_SENDGRID_UNSUPPRESS', 'false')).lower() in ('1', 'true', 'yes')
 
         base_salidas = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'salidas'))
         emails_dir = os.path.join(base_salidas, 'emails')

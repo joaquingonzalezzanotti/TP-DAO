@@ -6,6 +6,7 @@ from persistencia.persistencia_errores import IntegridadError, DatabaseError, No
 from modelos.turno import Turno
 from especialidad_service import EspecialidadService
 from mail_service import MailService
+import os
 from datetime import datetime, date, timedelta
 class TurnoService:
     """
@@ -66,7 +67,19 @@ class TurnoService:
                 try:
                     email = getattr(paciente, 'email', None)
                     if email:
-                        enviado = MailService.enviar_turno(email, turno)
+                        # Construir mail_config aquí si tu servicio/DB lo provee.
+                        # Actualmente usamos variables de entorno como ejemplo,
+                        # pero puedes reemplazar esto por campos del médico/clinica.
+                        mail_config = {
+                            'SMTP_HOST': os.environ.get('SMTP_HOST'),
+                            'SMTP_PORT': os.environ.get('SMTP_PORT'),
+                            'SMTP_USER': os.environ.get('SMTP_USER'),
+                            'SMTP_PASS': os.environ.get('SMTP_PASS'),
+                            'FROM_EMAIL': os.environ.get('FROM_EMAIL'),
+                            'SENDGRID_API_KEY': os.environ.get('SENDGRID_API_KEY'),
+                            'ALLOW_SENDGRID_UNSUPPRESS': os.environ.get('ALLOW_SENDGRID_UNSUPPRESS'),
+                        }
+                        enviado = MailService.enviar_turno(email, turno, mail_config)
                         if enviado:
                             print(f"[OK] Notificación por mail enviada a {email} para turno {id_turno}.")
                         else:

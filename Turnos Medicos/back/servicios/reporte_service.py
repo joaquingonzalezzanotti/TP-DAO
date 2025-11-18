@@ -3,7 +3,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.platypus.tables import Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
 import matplotlib.pyplot as plt
@@ -60,7 +60,7 @@ class ReporteService:
         # Crear estilos y elementos
         styles = getSampleStyleSheet()
         elements = []
-        
+
         # Encabezado
         title = "Listado de Turnos por Médico en un Período"
         elements.append(Paragraph(title, styles['Title']))
@@ -71,6 +71,19 @@ class ReporteService:
         elements.append(Spacer(1, 12))
         
         # Datos de la tabla
+        table_text_style = ParagraphStyle(
+            name="TablaTurnos",
+            parent=styles['BodyText'],
+            fontSize=9,
+            leading=11,
+            spaceAfter=0,
+            spaceBefore=0
+        )
+
+        def _p(text):
+            text = text or ""
+            return Paragraph(text.replace('\n', '<br/>'), table_text_style)
+
         data = [['ID', 'Fecha y Hora Inicio','Motivo', 'Observaciones', 'Estado', 'DNI Paciente']]
 
         turnos_filtrados = [t for t in turnos if getattr(t, 'estado', '').lower() != 'disponible']
@@ -86,14 +99,14 @@ class ReporteService:
             data.append([
                 turno.id_turno,
                 fecha_hora_str,
-                turno.motivo if turno.motivo else "",
-                turno.observaciones if turno.observaciones else "",
-                turno.estado,
-                turno.dni_paciente if turno.dni_paciente else "N/A"
+                _p(turno.motivo),
+                _p(turno.observaciones),
+                _p(turno.estado),
+                _p(str(turno.dni_paciente) if turno.dni_paciente else "N/A")
             ])
             
         # Tabla y Estilo
-        col_widths = [0.5 * inch, 1.4 * inch, 2.4 * inch, 2.4 * inch, 1.0 * inch, 1.0 * inch]
+        col_widths = [0.5 * inch, 1.3 * inch, 2.0 * inch, 2.0 * inch, 0.8 * inch, 0.8 * inch]
         table = Table(data, colWidths=col_widths)
 
         table.setStyle(TableStyle([
@@ -106,6 +119,7 @@ class ReporteService:
             ('LEFTPADDING', (0, 1), (-1, -1), 4),
             ('RIGHTPADDING', (0, 1), (-1, -1), 4),
             ('VALIGN', (0, 1), (-1, -1), 'TOP'),
+            ('WORDWRAP', (0, 1), (-1, -1), 'CJK'),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
