@@ -20,8 +20,8 @@ class ReporteService:
     def __init__(self):
         self.turno_service = TurnoService()
         self.medico_service = MedicoService()
-        self._root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        self._report_dir = os.path.join(self._root, "front", "salidas", "reportes")
+        self._root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        self._report_dir = os.path.join(self._root, "salidas", "reportes")
         os.makedirs(self._report_dir, exist_ok=True)
 
     def _output_path(self, nombre_archivo):
@@ -68,7 +68,7 @@ class ReporteService:
         text = (f"Turnos del Dr/a. {medico.apellido}, Matrícula: {medico.nro_matricula}, "
                 f"desde: {fecha_inicio_str} hasta: {fecha_fin_str}.")
         elements.append(Paragraph(text, styles['Normal']))
-        elements.append(Paragraph("<br/>", styles['Normal'])) # Espacio
+        elements.append(Spacer(1, 12))
         
         # Datos de la tabla
         data = [['ID', 'Fecha y Hora Inicio','Motivo', 'Observaciones', 'Estado', 'DNI Paciente']]
@@ -93,9 +93,9 @@ class ReporteService:
             ])
             
         # Tabla y Estilo
-        col_widths = [0.5 * inch, 1.5 * inch, 1.5 * inch, 2.0 * inch, 1.0 * inch, 1.0 * inch]
+        col_widths = [0.5 * inch, 1.4 * inch, 2.4 * inch, 2.4 * inch, 1.0 * inch, 1.0 * inch]
         table = Table(data, colWidths=col_widths)
-        
+
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -103,6 +103,9 @@ class ReporteService:
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'), # Centrar encabezados
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('LEFTPADDING', (0, 1), (-1, -1), 4),
+            ('RIGHTPADDING', (0, 1), (-1, -1), 4),
+            ('VALIGN', (0, 1), (-1, -1), 'TOP'),
             ('BACKGROUND', (0, 1), (-1, -1), colors.white),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))

@@ -47,12 +47,13 @@ class MailService:
         # Opt-in to allow the service to remove sendgrid suppressions automatically (use with caution)
         allow_unsuppress = os.environ.get('ALLOW_SENDGRID_UNSUPPRESS', 'false').lower() in ('1', 'true', 'yes')
 
+        base_salidas = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'salidas'))
+        emails_dir = os.path.join(base_salidas, 'emails')
+
         def _log_error(msg: str):
             try:
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-                out_dir = os.path.join(root, 'front', 'salidas', 'emails')
-                os.makedirs(out_dir, exist_ok=True)
-                log_path = os.path.join(out_dir, 'mail_errors.log')
+                os.makedirs(emails_dir, exist_ok=True)
+                log_path = os.path.join(emails_dir, 'mail_errors.log')
                 ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 with open(log_path, 'a', encoding='utf-8') as lf:
                     lf.write(f"[{ts}] {msg}\n")
@@ -62,10 +63,8 @@ class MailService:
 
         def _log_success(msg: str):
             try:
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-                out_dir = os.path.join(root, 'front', 'salidas', 'emails')
-                os.makedirs(out_dir, exist_ok=True)
-                success_path = os.path.join(out_dir, 'mail_success.log')
+                os.makedirs(emails_dir, exist_ok=True)
+                success_path = os.path.join(emails_dir, 'mail_success.log')
                 ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 with open(success_path, 'a', encoding='utf-8') as lf:
                     lf.write(f"[{ts}] {msg}\n")
@@ -76,8 +75,7 @@ class MailService:
         # Priorizar SendGrid si está configurado
         if sendgrid_key:
             try:
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-                out_dir = os.path.join(root, 'front', 'salidas', 'emails')
+                os.makedirs(emails_dir, exist_ok=True)
                 # Construir payload SendGrid
                 payload = {
                     "personalizations": [{
@@ -161,12 +159,10 @@ class MailService:
 
         if not smtp_host or not smtp_port or not smtp_user or not smtp_pass:
             try:
-                root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-                out_dir = os.path.join(root, 'front', 'salidas', 'emails')
-                os.makedirs(out_dir, exist_ok=True)
+                os.makedirs(emails_dir, exist_ok=True)
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
                 filename = f"mail_turno_{ts}_{getattr(turno, 'id_turno', '')}.txt"
-                path = os.path.join(out_dir, filename)
+                path = os.path.join(emails_dir, filename)
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(f"To: {to_email}\n")
                     f.write(f"Subject: {subject}\n\n")

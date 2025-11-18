@@ -33,7 +33,7 @@ class Consulta:
         elif not isinstance(self.fecha_hora, datetime):
             raise ValueError("La fecha y hora de la consulta debe ser un datetime o un string válido.")
 
-        if self.fecha_hora > datetime.now():
+        if self.fecha_hora > datetime.now() and self.id_consulta is None:
             raise ValueError("Una consulta no puede tener una fecha futura.")
 
         # Validación Diagnóstico

@@ -39,7 +39,7 @@ class RecetaService:
         self.especialidad_dao = EspecialidadDAO()
         self.historial_dao = HistorialClinicoDAO()
 
-        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         self._default_output = os.path.join(self._project_root, "salidas", "recetas")
         self.logo_path = os.path.join(self._project_root, "assets", "logo_utn.png")
 
