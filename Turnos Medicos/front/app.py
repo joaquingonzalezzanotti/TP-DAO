@@ -704,12 +704,14 @@ class App(tk.Tk):
         data = self._open_form_dialog(
             'Registrar consulta',
             [
+                {'key': 'dni', 'label': 'DNI paciente', 'readonly': True},
                 ('fecha', 'Fecha y hora (YYYY-MM-DD HH:MM)'),
                 ('matricula', 'Matrícula del médico'),
                 ('diagnostico', 'Diagnóstico'),
                 ('observaciones', 'Observaciones')
             ],
             {
+                'dni': str(dni_int),
                 'fecha': datetime.now().strftime("%Y-%m-%d %H:%M")
             }
         )
