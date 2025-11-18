@@ -38,8 +38,8 @@ class Turno:
             # ESTANDARIZACIÓN
             self.fecha_hora_inicio = dt
 
-            # No permitir crear turnos disponibles en el pasado
-            if self.estado == "disponible" and dt < datetime.now():
+            # No permitir crear turnos disponibles en el pasado (solo al crear nuevos)
+            if self.estado == "disponible" and dt < datetime.now() and self.id_turno is None:
                 raise ValueError("Un turno disponible no puede crearse en el pasado.")
 
         except ValueError as e:

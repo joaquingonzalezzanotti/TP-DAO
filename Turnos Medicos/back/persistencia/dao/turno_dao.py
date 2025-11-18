@@ -181,6 +181,25 @@ class TurnoDAO(BaseDAO):
         )
         rows = self.cur.fetchall()
         return [Turno(**row) for row in rows]
+
+    def obtener_turnos_por_especialidad_en_un_periodo(self, id_especialidad, fecha_inicio, fecha_fin):
+        """
+        Retorna los turnos de todos los médicos de una especialidad dentro de un período dado.
+        """
+        fecha_inicio_str = self._fmt_date(fecha_inicio)
+        fecha_fin_str = self._fmt_date(fecha_fin)
+
+        self.cur.execute(
+            """SELECT t.* FROM Turno t
+               JOIN Medico m ON t.nro_matricula_medico = m.nro_matricula
+               WHERE m.id_especialidad=?
+                 AND m.activo = 1
+                 AND date(t.fecha_hora_inicio) BETWEEN ? AND ?
+               ORDER BY datetime(t.fecha_hora_inicio) ASC""",
+            (id_especialidad, fecha_inicio_str, fecha_fin_str)
+        )
+        rows = self.cur.fetchall()
+        return [Turno(**row) for row in rows]
     
     def obtener_cantidad_turnos_por_estado_y_especialidad(self, id_especialidad):
         """

@@ -93,10 +93,8 @@ class TurnoService:
 
     def cancelar_turno(self, id_turno, observaciones=None):
         """
-        Cancela un turno existente.
-        Según la regla de negocio, al cancelar un turno no se debe crear
-        automáticamente un nuevo turno disponible; el registro queda con
-        estado 'cancelado' y no se permite realizar otras operaciones sobre él.
+        Cancela un turno programado y lo devuelve a estado 'disponible' para
+        que vuelva a ofrecerse en la agenda.
         """
         # Obtener y validar turno
         try:
@@ -112,16 +110,17 @@ class TurnoService:
 
         if turno.estado not in ['programado']:
             raise ValueError(f"El turno {id_turno} no puede ser cancelado. Estado actual: {turno.estado}.")
-        # Modificar el turno original (estado: cancelado) y persistir
-        turno.estado = 'cancelado'
-        turno.motivo = f"Cancelado por el paciente/sistema (Original ID: {id_turno})"
-        if observaciones:
-            turno.observaciones = observaciones
+
+        # Reestablecer el turno como disponible para que pueda reasignarse
+        turno.estado = 'disponible'
+        turno.dni_paciente = None
+        turno.motivo = None
+        turno.observaciones = observaciones or None
 
         try:
             turno._validar()
             actualizado = self.turno_dao.actualizar(turno)
-            print(f"[OK] Turno {id_turno} marcado como 'cancelado'.")
+            print(f"[OK] Turno {id_turno} marcado nuevamente como 'disponible'.")
             return actualizado
 
         except IntegridadError as e:
@@ -151,19 +150,17 @@ class TurnoService:
         if not turno:
             raise ValueError(f"No existe un turno con ID {id_turno}.")
 
-        # Validar la hora del turno
-        # Calcular los límites de la ventana de 4 horas
-        limite_inferior = turno.fecha_hora_inicio - timedelta(hours=2)
-        limite_superior = turno.fecha_hora_inicio+ timedelta(hours=2)
         ahora = datetime.now()
-
-        # Verificar si la hora actual está DENTRO del rango
-        if not (limite_inferior <= ahora <= limite_superior):
+        if turno.fecha_hora_inicio.date() != ahora.date():
             raise ValueError(
                 f"El turno {id_turno} no puede marcarse como atendido. "
-                f"La hora actual ({ahora.strftime('%H:%M')}) está fuera de la ventana de +/- 2 horas "
-                f"({limite_inferior.strftime('%H:%M')} a {limite_superior.strftime('%H:%M')})."
-            )    
+                "Solo se permiten turnos del día en curso."
+            )
+        if ahora < turno.fecha_hora_inicio:
+            raise ValueError(
+                f"El turno {id_turno} no puede marcarse como atendido antes de la hora programada "
+                f"({turno.fecha_hora_inicio.strftime('%H:%M')})."
+            )
             
         if turno.estado != 'programado':
             raise ValueError(f"El turno {id_turno} solo se puede marcar como atendido si está 'programado'. Estado actual: {turno.estado}")
@@ -390,6 +387,55 @@ class TurnoService:
         except Exception as e:
             print(f"[ERROR DB] Fallo al obtener turnos por medico y periodo: {e}")
             raise RuntimeError("Ocurrió un error técnico al consultar los turnos medico y periodo.")
+
+    def obtener_turnos_por_especialidad_en_un_periodo(self, id_especialidad, fecha_inicio, fecha_fin):
+        """Obtiene turnos de todos los médicos de una especialidad en un rango de fechas."""
+        try:
+            id_especialidad = int(id_especialidad)
+        except Exception:
+            raise ValueError("El identificador de la especialidad es inválido.")
+
+        try:
+            especialidad = self.especialidad_dao.obtener_por_id(id_especialidad)
+        except Exception as e:
+            raise RuntimeError(f"Fallo técnico al consultar la especialidad {id_especialidad}: {e}")
+
+        if not especialidad or getattr(especialidad, "activo", 0) == 0:
+            raise ValueError(f"No existe una especialidad activa con ID {id_especialidad}.")
+
+        if isinstance(fecha_inicio, str):
+            try:
+                fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha_inicio, datetime):
+            fecha_inicio = fecha_inicio.date()
+        if not isinstance(fecha_inicio, date):
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+
+        if isinstance(fecha_fin, str):
+            try:
+                fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError("La fecha tiene un formato inválido (usar YYYY-MM-DD)")
+        if isinstance(fecha_fin, datetime):
+            fecha_fin = fecha_fin.date()
+        if not isinstance(fecha_fin, date):
+            raise ValueError("La fecha debe ser un string 'YYYY-MM-DD' o un objeto date/datetime.")
+
+        if fecha_inicio > fecha_fin:
+            raise ValueError("La fecha de inicio no puede ser posterior a la fecha de fin.")
+
+        if (fecha_fin - fecha_inicio).days > 30:
+            raise ValueError("El período entre las fechas no puede ser mayor a 30 días.")
+
+        try:
+            return self.turno_dao.obtener_turnos_por_especialidad_en_un_periodo(
+                id_especialidad, fecha_inicio, fecha_fin
+            )
+        except Exception as e:
+            print(f"[ERROR DB] Fallo al obtener turnos por especialidad y periodo: {e}")
+            raise RuntimeError("Ocurrió un error técnico al consultar los turnos por especialidad.")
 
     def obtener_resumen_asistencias(self, fecha_inicio=None, fecha_fin=None):
         """
