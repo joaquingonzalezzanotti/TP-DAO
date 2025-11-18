@@ -122,6 +122,11 @@ class App(tk.Tk):
         ttk.Label(top, text='Médico:').grid(row=0, column=0, sticky='w')
         self.combo_medicos = ttk.Combobox(top, state='readonly')
         self.combo_medicos.grid(row=0, column=1, sticky='w')
+        self.combo_medicos.bind('<<ComboboxSelected>>', self._on_medico_selected)
+
+        ttk.Label(top, text='Especialidad:').grid(row=1, column=0, sticky='w', pady=(4, 0))
+        self.combo_especialidades = ttk.Combobox(top, state='readonly')
+        self.combo_especialidades.grid(row=1, column=1, sticky='w', pady=(4, 0))
 
         ttk.Label(top, text='Mes (1-12):').grid(row=0, column=2, sticky='w')
         self.entry_mes = ttk.Entry(top, width=6)
@@ -141,45 +146,69 @@ class App(tk.Tk):
         btn_listar = ttk.Button(top, text='Listar turnos del período', command=self._load_turnos)
         btn_listar.grid(row=0, column=7, sticky='w', padx=10)
 
-        btn_refrescar = ttk.Button(top, text='Refrescar médicos', command=self._load_medicos)
-        btn_refrescar.grid(row=0, column=8, sticky='w')
+        btn_refrescar = ttk.Button(top, text='Refrescar filtros', command=self._refresh_turno_filtros)
+        btn_refrescar.grid(row=1, column=7, sticky='w', padx=10, pady=(4, 0))
 
         # Treeview de resultados
-        cols = ('id', 'fecha', 'estado', 'paciente', 'medico')
+        self.turnos_columns = ('id', 'fecha', 'estado', 'paciente', 'medico', 'acciones')
+        cols = self.turnos_columns
         self.tree_turnos = ttk.Treeview(parent, columns=cols, show='headings')
         for c in cols:
             self.tree_turnos.heading(c, text=c.capitalize())
-            self.tree_turnos.column(c, width=150)
+            if c == 'acciones':
+                width = 110
+            elif c == 'estado':
+                width = 120
+            else:
+                width = 150
+            anchor = 'center' if c in ('acciones', 'estado') else 'w'
+            self.tree_turnos.column(c, width=width, anchor=anchor)
         self.tree_turnos.pack(fill='both', expand=True, padx=8, pady=8)
+        self.tree_turnos.bind('<Button-1>', self._on_turno_click)
+        self.tree_turnos.bind('<<TreeviewSelect>>', self._on_tree_turno_select)
 
-        form = ttk.LabelFrame(parent, text='Registrar turno (seleccione un horario de la tabla)')
-        form.pack(fill='x', padx=8, pady=(0, 8))
+        self.turno_form_pack = {'fill': 'x', 'padx': 8, 'pady': (0, 8)}
+        self.form_registro = ttk.LabelFrame(parent, text='Registrar turno (seleccione un horario de la tabla)')
+        self.form_registro.pack(**self.turno_form_pack)
 
-        ttk.Label(form, text='DNI paciente:').grid(row=0, column=0, sticky='w', padx=4, pady=4)
-        self.entry_turno_dni = ttk.Entry(form, width=14)
+        ttk.Label(self.form_registro, text='DNI paciente:').grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        self.entry_turno_dni = ttk.Entry(self.form_registro, width=14)
         self.entry_turno_dni.grid(row=0, column=1, sticky='w', padx=4, pady=4)
 
-        ttk.Label(form, text='Motivo:').grid(row=0, column=2, sticky='w', padx=4, pady=4)
-        self.entry_turno_motivo = ttk.Entry(form, width=35)
+        ttk.Label(self.form_registro, text='Motivo:').grid(row=0, column=2, sticky='w', padx=4, pady=4)
+        self.entry_turno_motivo = ttk.Entry(self.form_registro, width=35)
         self.entry_turno_motivo.grid(row=0, column=3, sticky='we', padx=4, pady=4)
 
-        ttk.Label(form, text='Observaciones:').grid(row=1, column=0, sticky='w', padx=4, pady=4)
-        self.entry_turno_obs = ttk.Entry(form, width=60)
+        ttk.Label(self.form_registro, text='Observaciones:').grid(row=1, column=0, sticky='w', padx=4, pady=4)
+        self.entry_turno_obs = ttk.Entry(self.form_registro, width=60)
         self.entry_turno_obs.grid(row=1, column=1, columnspan=3, sticky='we', padx=4, pady=4)
 
-        btn_programar = ttk.Button(form, text='Asignar turno al paciente', command=self._on_programar_turno)
+        btn_programar = ttk.Button(self.form_registro, text='Asignar turno al paciente', command=self._on_programar_turno)
         btn_programar.grid(row=0, column=4, rowspan=2, padx=10, pady=4, sticky='nsw')
-        # Acciones sobre turnos ya programados
-        btn_cancelar = ttk.Button(form, text='Cancelar turno', command=self._on_cancelar_turno)
-        btn_cancelar.grid(row=0, column=5, rowspan=1, padx=6, pady=4, sticky='nsw')
-        btn_ausente = ttk.Button(form, text='Marcar ausente', command=self._on_marcar_ausente)
-        btn_ausente.grid(row=1, column=5, rowspan=1, padx=6, pady=4, sticky='nsw')
-        btn_atendido = ttk.Button(form, text='Marcar atendido', command=self._on_marcar_atendido)
-        btn_atendido.grid(row=0, column=6, rowspan=2, padx=6, pady=4, sticky='nsw')
 
-        form.columnconfigure(3, weight=1)
+        self.form_registro.columnconfigure(3, weight=1)
 
+        self.especialidades_index = {}
+        self.especialidades_by_id = {}
+        self.medicos_index = {}
+        self.turnos_data = {}
+        self._medico_label_cache = {}
+        self._registro_visible = True
+        self._refresh_turno_filtros()
+        self._set_registro_visible(False)
+
+    def _refresh_turno_filtros(self):
+        self._medico_label_cache = {}
         self._load_medicos()
+        self._load_especialidades()
+
+    def _set_registro_visible(self, visible):
+        if visible and not self._registro_visible:
+            self.form_registro.pack(**self.turno_form_pack)
+            self._registro_visible = True
+        elif not visible and self._registro_visible:
+            self.form_registro.pack_forget()
+            self._registro_visible = False
 
     def _build_historial_tab(self, parent):
         pad = {'padx': 8, 'pady': 8}
@@ -238,45 +267,109 @@ class App(tk.Tk):
             if self.medico_service is None:
                 raise RuntimeError('Servicio de médicos no disponible')
             medicos = self.medico_service.obtener_medicos()
-            items = []
+            items = ['Seleccione un médico']
+            anterior = (self.combo_medicos.get() or '').strip()
+            self.medicos_index = {}
             for m in medicos:
                 label = f"{m.nro_matricula} - {m.apellido}, {m.nombre}"
                 items.append(label)
+                self.medicos_index[label] = m
             self.combo_medicos['values'] = items
-            if items:
-                self.combo_medicos.current(0)
-                # Refrescar turnos para el primer médico cargado
-                self._load_turnos()
+            if anterior and anterior in items:
+                self.combo_medicos.set(anterior)
+            else:
+                self.combo_medicos.set(items[0] if items else '')
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden cargar médicos: {e}')
 
+    def _load_especialidades(self):
+        try:
+            if self.especialidad_dao is None:
+                raise RuntimeError('DAO Especialidad no disponible')
+            especialidades = self.especialidad_dao.obtener_todos()
+            items = ['Seleccione una especialidad']
+            anterior = (self.combo_especialidades.get() or '').strip()
+            self.especialidades_index = {}
+            self.especialidades_by_id = {}
+            for esp in especialidades:
+                label = f"{esp.id_especialidad} - {esp.nombre}"
+                items.append(label)
+                self.especialidades_index[label] = esp
+                self.especialidades_by_id[esp.id_especialidad] = label
+            self.combo_especialidades['values'] = items
+            if anterior and anterior in items:
+                self.combo_especialidades.set(anterior)
+            else:
+                self.combo_especialidades.set(items[0] if items else '')
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pueden cargar especialidades: {e}')
+
+    def _on_medico_selected(self, _event=None):
+        sel = (self.combo_medicos.get() or '').strip()
+        if not sel or sel.lower().startswith('seleccione'):
+            return
+        medico = self.medicos_index.get(sel)
+        if not medico:
+            return
+        esp_id = getattr(medico, 'id_especialidad', None)
+        if esp_id and esp_id in self.especialidades_by_id:
+            self.combo_especialidades.set(self.especialidades_by_id[esp_id])
+
     def _load_turnos(self):
-        """Llena la grilla con los turnos del médico seleccionado en el mes/año ingresados."""
+        """Llena la grilla con los turnos filtrando por médico o especialidad."""
         if self.turno_service is None or self.medico_dao is None:
             messagebox.showerror('Error', 'Servicios de turnos o médicos no disponibles')
             return
 
         for item in self.tree_turnos.get_children():
             self.tree_turnos.delete(item)
+        self._set_registro_visible(False)
+        self.turnos_data = {}
 
-        sel = self.combo_medicos.get()
-        if not sel:
+        sel_medico = (self.combo_medicos.get() or '').strip()
+        sel_especialidad = (self.combo_especialidades.get() or '').strip()
+        if sel_medico.lower().startswith('seleccione'):
+            sel_medico = ''
+        if sel_especialidad.lower().startswith('seleccione'):
+            sel_especialidad = ''
+        if sel_medico.lower().startswith('seleccione'):
+            sel_medico = ''
+        if sel_especialidad.lower().startswith('seleccione'):
+            sel_especialidad = ''
+
+        if not sel_medico and not sel_especialidad:
+            messagebox.showwarning('Atención', 'Seleccione un médico o una especialidad para listar turnos.')
             return
 
-        try:
-            nro = int(sel.split('-')[0].strip())
-        except Exception:
-            messagebox.showerror('Error', 'Formato de médico inválido')
-            return
+        medico = None
+        medico_label = ''
+        nro = None
 
-        try:
-            medico = self.medico_dao.obtener_por_id(nro)
-            if not medico:
-                raise ValueError('Médico no encontrado')
-            medico_label = f"{medico.apellido}, {medico.nombre} (Mat. {medico.nro_matricula})"
-        except Exception as e:
-            messagebox.showerror('Error', f'No se pudo obtener el médico: {e}')
-            return
+        if sel_medico:
+            try:
+                nro = int(sel_medico.split('-')[0].strip())
+            except Exception:
+                messagebox.showerror('Error', 'Formato de médico inválido')
+                return
+
+            try:
+                medico = self.medico_dao.obtener_por_id(nro)
+                if not medico:
+                    raise ValueError('Médico no encontrado')
+                medico_label = f"{medico.apellido}, {medico.nombre} (Mat. {medico.nro_matricula})"
+            except Exception as e:
+                messagebox.showerror('Error', f'No se pudo obtener el médico: {e}')
+                return
+
+        especialidad_obj = None
+        if sel_especialidad:
+            especialidad_obj = self.especialidades_index.get(sel_especialidad)
+            if not especialidad_obj:
+                messagebox.showerror('Error', 'Especialidad seleccionada inválida')
+                return
+            if medico and getattr(medico, 'id_especialidad', None) != getattr(especialidad_obj, 'id_especialidad', None):
+                messagebox.showerror('Error', 'El médico seleccionado no pertenece a la especialidad elegida.')
+                return
 
         mes = self.entry_mes.get()
         anio = self.entry_anio.get()
@@ -292,16 +385,26 @@ class App(tk.Tk):
         fin = date(anio, mes, dias_mes)
 
         try:
-            turnos = self.turno_service.obtener_turnos_por_medico_en_un_periodo(
-                nro,
-                inicio.isoformat(),
-                fin.isoformat()
-            )
+            if nro is not None:
+                turnos = self.turno_service.obtener_turnos_por_medico_en_un_periodo(
+                    nro,
+                    inicio.isoformat(),
+                    fin.isoformat()
+                )
+            else:
+                turnos = self.turno_service.obtener_turnos_por_especialidad_en_un_periodo(
+                    getattr(especialidad_obj, 'id_especialidad'),
+                    inicio.isoformat(),
+                    fin.isoformat()
+                )
         except Exception as e:
             messagebox.showerror('Error', f'No se pueden cargar turnos: {e}')
             return
 
         for turno in turnos:
+            turno_id = getattr(turno, 'id_turno', '')
+            if turno_id not in (None, ''):
+                self.turnos_data[str(turno_id)] = turno
             fecha_val = getattr(turno, 'fecha_hora_inicio', '')
             if isinstance(fecha_val, datetime):
                 fecha_val = fecha_val.strftime("%Y-%m-%d %H:%M")
@@ -318,17 +421,150 @@ class App(tk.Tk):
                     except Exception:
                         paciente_val = str(dni_paciente)
 
+            medico_val = medico_label if nro is not None else self._format_medico_label(getattr(turno, 'nro_matricula_medico', None))
+
+            acciones = self._get_turno_action_values(turno)
+
             self.tree_turnos.insert(
                 '',
                 'end',
                 values=(
-                    getattr(turno, 'id_turno', ''),
+                    turno_id,
                     fecha_val,
                     getattr(turno, 'estado', ''),
                     paciente_val,
-                    medico_label
+                    medico_val,
+                    *acciones
                 )
             )
+
+    def _format_medico_label(self, nro_matricula):
+        if not nro_matricula:
+            return ''
+        if nro_matricula not in self._medico_label_cache:
+            try:
+                if self.medico_dao is None:
+                    return str(nro_matricula)
+                medico = self.medico_dao.obtener_por_id(nro_matricula)
+                if medico:
+                    self._medico_label_cache[nro_matricula] = f"{medico.apellido}, {medico.nombre} (Mat. {medico.nro_matricula})"
+                else:
+                    self._medico_label_cache[nro_matricula] = str(nro_matricula)
+            except Exception:
+                self._medico_label_cache[nro_matricula] = str(nro_matricula)
+        return self._medico_label_cache.get(nro_matricula, str(nro_matricula))
+
+    def _get_turno_datetime(self, turno):
+        if turno is None:
+            return None
+        value = getattr(turno, 'fecha_hora_inicio', None)
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+        return None
+
+    def _get_turno_action_values(self, turno):
+        estado = str(getattr(turno, 'estado', '')).lower()
+        if estado == 'programado':
+            fecha_dt = self._get_turno_datetime(turno)
+            if fecha_dt and fecha_dt < datetime.now():
+                return ('Atendido ✓ | Ausente X',)
+            return ('Cancelar Turno | ✓ | X',)
+        return ('',)
+
+    def _get_turno_from_row(self, row_id):
+        valores = self.tree_turnos.item(row_id).get('values', [])
+        if not valores:
+            return None, ''
+        turno_id = valores[0]
+        return self.turnos_data.get(str(turno_id)), turno_id
+
+    def _on_tree_turno_select(self, _event=None):
+        sel = self.tree_turnos.selection()
+        if not sel:
+            self._set_registro_visible(False)
+            return
+        valores = self.tree_turnos.item(sel[0]).get('values', [])
+        estado = str(valores[2]).lower() if len(valores) > 2 and valores[2] else ''
+        self._set_registro_visible(estado == 'disponible')
+
+    def _on_turno_click(self, event):
+        region = self.tree_turnos.identify('region', event.x, event.y)
+        if region != 'cell':
+            return
+        row_id = self.tree_turnos.identify_row(event.y)
+        if not row_id:
+            return
+        column_id = self.tree_turnos.identify_column(event.x)
+        try:
+            col_index = int(column_id.lstrip('#')) - 1
+        except Exception:
+            return
+        if col_index < 0 or col_index >= len(self.turnos_columns):
+            return
+        column_name = self.turnos_columns[col_index]
+        if column_name != 'acciones':
+            return
+
+        self.tree_turnos.selection_set(row_id)
+        self.tree_turnos.focus(row_id)
+
+        label = self.tree_turnos.set(row_id, column_name)
+        if not label:
+            return 'break'
+
+        accion = self._show_turno_acciones_dialog(row_id)
+        if not accion:
+            return 'break'
+        confirm = messagebox.askyesno(
+            'Confirmar',
+            f'¿Está seguro que desea {accion} el turno seleccionado?'
+        )
+        if not confirm:
+            return 'break'
+
+        if accion == 'marcar como atendido':
+            self._on_marcar_atendido()
+        elif accion == 'cancelar':
+            self._on_cancelar_turno()
+        elif accion == 'marcar ausente':
+            self._on_marcar_ausente()
+        return 'break'
+
+    def _show_turno_acciones_dialog(self, row_id):
+        turno, turno_id = self._get_turno_from_row(row_id)
+
+        fecha_dt = self._get_turno_datetime(turno)
+        es_futuro = True
+        if fecha_dt:
+            es_futuro = fecha_dt >= datetime.now()
+
+        dlg = tk.Toplevel(self)
+        dlg.transient(self)
+        dlg.title('Acciones del turno')
+        dlg.grab_set()
+
+        ttk.Label(dlg, text=f'Seleccione la acción para el turno {turno_id}:').pack(padx=12, pady=(12, 6))
+
+        result = {'value': None}
+
+        def choose(value):
+            result['value'] = value
+            dlg.destroy()
+
+        if es_futuro:
+            ttk.Button(dlg, text='Cancelar turno', command=lambda: choose('cancelar')).pack(fill='x', padx=12, pady=2)
+        ttk.Button(dlg, text='Marcar como atendido', command=lambda: choose('marcar como atendido')).pack(fill='x', padx=12, pady=2)
+        ttk.Button(dlg, text='Marcar ausente', command=lambda: choose('marcar ausente')).pack(fill='x', padx=12, pady=2)
+        ttk.Button(dlg, text='Cerrar', command=dlg.destroy).pack(fill='x', padx=12, pady=(8, 12))
+
+        self.wait_window(dlg)
+        return result['value']
 
     def _load_historial(self):
         if self.consulta_service is None:
@@ -597,15 +833,19 @@ class App(tk.Tk):
             return False
 
     def _on_generar_turnos(self):
-        sel = self.combo_medicos.get()
-        if not sel:
-            messagebox.showwarning('Atención', 'Seleccione un médico primero')
+        sel_medico = (self.combo_medicos.get() or '').strip()
+        sel_especialidad = (self.combo_especialidades.get() or '').strip()
+        if not sel_medico and not sel_especialidad:
+            messagebox.showwarning('Atención', 'Seleccione un médico o una especialidad primero')
             return
-        try:
-            nro = int(sel.split('-')[0].strip())
-        except Exception:
-            messagebox.showerror('Error', 'Formato de médico inválido')
-            return
+
+        nro = None
+        if sel_medico:
+            try:
+                nro = int(sel_medico.split('-')[0].strip())
+            except Exception:
+                messagebox.showerror('Error', 'Formato de médico inválido')
+                return
 
         try:
             mes = self.entry_mes.get()
@@ -622,8 +862,38 @@ class App(tk.Tk):
         try:
             if self.medico_service is None:
                 raise RuntimeError('Servicio de médicos no disponible')
-            creados = self.medico_service.generar_turnos_de_medico(nro, mes, anio)
-            messagebox.showinfo('Ok', f'Se generaron {len(creados)} turnos')
+            if nro is not None:
+                creados = self.medico_service.generar_turnos_de_medico(nro, mes, anio)
+                messagebox.showinfo('Ok', f'Se generaron {len(creados)} turnos')
+            else:
+                especialidad = self.especialidades_index.get(sel_especialidad)
+                if not especialidad:
+                    raise ValueError('Especialidad seleccionada inválida.')
+                medicos = self.medico_service.obtener_medicos_por_especialidad(
+                    getattr(especialidad, 'id_especialidad')
+                )
+                if not medicos:
+                    messagebox.showinfo('Atención', 'No hay médicos activos para la especialidad seleccionada.')
+                    return
+                total = 0
+                errores = []
+                for medico in medicos:
+                    try:
+                        creados = self.medico_service.generar_turnos_de_medico(
+                            medico.nro_matricula,
+                            mes,
+                            anio
+                        )
+                        total += len(creados)
+                    except Exception as err:
+                        errores.append(f"{medico.nro_matricula} - {medico.apellido}: {err}")
+                mensaje = f'Se generaron {total} turnos para {len(medicos)} médicos.'
+                if errores:
+                    detalle = '\n'.join(errores[:3])
+                    if len(errores) > 3:
+                        detalle += '\n...'
+                    mensaje += f'\nAlgunos médicos no pudieron generar turnos:\n{detalle}'
+                messagebox.showinfo('Ok', mensaje)
             self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error al generar', str(e))
@@ -700,8 +970,9 @@ class App(tk.Tk):
             return
         try:
             turno_id = int(turno_id)
-            nuevo = self.turno_service.cancelar_turno(turno_id)
-            messagebox.showinfo('OK', f'Turno {turno_id} cancelado. Turno disponible creado (ID nuevo: {getattr(nuevo, "id_turno", "n/a")}).')
+            actualizado = self.turno_service.cancelar_turno(turno_id)
+            estado = getattr(actualizado, 'estado', 'disponible')
+            messagebox.showinfo('OK', f'Turno {turno_id} cancelado. El turno vuelve a mostrarse como "{estado}".')
             self._load_turnos()
         except Exception as e:
             messagebox.showerror('Error', str(e))
@@ -920,7 +1191,8 @@ class App(tk.Tk):
         for col, lab in zip(cols, labels):
             self.tree_abc.heading(col, text=lab)
             # ajustar ancho según el label
-            self.tree_abc.column(col, width=160 if lab else 80)
+            width = 160 if lab else 80
+            self.tree_abc.column(col, width=width)
         # Para columnas no usadas por la entidad, asegurarse que su encabezado quede vacío
         remaining = cols[len(labels):]
         for col in remaining:
