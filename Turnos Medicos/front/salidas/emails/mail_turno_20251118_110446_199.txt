@@ -1,0 +1,10 @@
+To: arineta@gmail.com
+Subject: Confirmación de turno #199
+
+Detalle del turno:
+
+ID: 199
+Fecha/Hora: 2025-11-26 10:00:00
+Médico (matrícula): 1001
+Motivo: Dolor cabeza
+Observaciones: None
